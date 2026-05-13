@@ -10,7 +10,7 @@ This file tracks the individual task deadlines for all team members working on t
 | Tibor | Movement | YYYY-MM-DD | Not Started |
 | Tunir | Infrared | YYYY-MM-DD | Not Started |
 | Junhao | [Add your task here] | YYYY-MM-DD | Not Started |
-| Yangpin | Magnetic | YYYY-MM-DD | Not Started |
+| Yangping | Magnetic | YYYY-MM-DD | Not Started |
 | Qais | Radio | YYYY-MM-DD | Not Started |
 
 ## Instructions
