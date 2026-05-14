@@ -47,7 +47,7 @@ flowchart TD
 **Photo / diagram:**
 
 ![Coil antenna photo](images/step1_coil_antenna.jpg)
-*Replace with your own photo once built*
+
 
 ---
 
@@ -58,7 +58,7 @@ flowchart TD
 **Photo / diagram:**
 
 ![LC circuit photo](images/step2_LC_circuit.jpg)
-*Replace with your own photo or LTspice simulation screenshot*
+
 
 ---
 
@@ -71,7 +71,7 @@ flowchart TD
 **Photo / diagram:**
 
 ![Amplifier circuit photo](images/step3_amplifier.jpg)
-*Replace with your own photo or circuit schematic*
+
 
 ---
 
@@ -82,7 +82,7 @@ flowchart TD
 **Photo / diagram:**
 
 ![Envelope detector photo](images/step4_envelope_detector.jpg)
-*Replace with your own photo or oscilloscope screenshot*
+
 
 ---
 
@@ -93,7 +93,7 @@ flowchart TD
 **Photo / diagram:**
 
 ![Comparator circuit photo](images/step5_comparator.jpg)
-*Replace with your own photo or oscilloscope screenshot showing clean 0/1 output*
+
 
 ---
 
@@ -118,7 +118,7 @@ void loop() {
 **Photo / diagram:**
 
 ![Metro M0 wiring photo](images/step6_metro_wiring.jpg)
-*Replace with your own wiring photo*
+
 
 ---
 
