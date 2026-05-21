@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LUNER-ICE // Mission Control</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <style>
+    :root {
+      --bg:        #020b18;
+      --panel:     #030f22;
+      --accent:    #00d4ff;
+      --accent2:   #3d8fff;
+      --border:    #0a3550;
+      --border-hi: #1a6b99;
+      --text:      #b8d8f0;
+      --dim:       #3a6a8a;
+      --dim2:      #1e3d55;
+      --red:       #ff3838;
+      --green:     #00ff88;
+      --yellow:    #ffcc00;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      min-height: 100vh;
+      font-family: 'Share Tech Mono', 'Courier New', monospace;
+      color: var(--text);
+      overflow-x: hidden;
+    }
+
+    /* Grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,160,220,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,160,220,0.025) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Scanlines */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 3px,
+        rgba(0,0,0,0.07) 3px, rgba(0,0,0,0.07) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── HEADER ── */
+    .hdr {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 20px;
+      border-bottom: 1px solid var(--border-hi);
+      background: rgba(2,8,22,0.97);
+      position: relative;
+      flex-shrink: 0;
+    }
+    .hdr::after {
+      content: '';
+      position: absolute;
+      bottom: -2px; left: 8%; right: 8%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.35;
+    }
+    .hdr-logo {
+      font-family: 'Orbitron', monospace;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: 5px;
+      color: var(--accent);
+      text-shadow: 0 0 18px rgba(0,212,255,0.65);
+    }
+    .hdr-sub {
+      font-size: 8px;
+      letter-spacing: 3px;
+      color: var(--dim);
+      margin-top: 3px;
+    }
+    .hdr-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+    }
+    .hdr-mission {
+      font-size: 9px;
+      letter-spacing: 6px;
+      color: var(--dim);
+    }
+    .hdr-pills {
+      display: flex;
+      gap: 14px;
+      font-size: 9px;
+      color: var(--dim);
+    }
+    .hdr-clock {
+      font-family: 'Orbitron', monospace;
+      font-size: 18px;
+      color: var(--accent);
+      text-shadow: 0 0 12px rgba(0,212,255,0.5);
+      letter-spacing: 3px;
+      animation: flicker 12s infinite;
+    }
+    .hdr-ip {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      margin-top: 3px;
+      text-align: right;
+    }
+
+    /* ── MAIN GRID ── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 270px 1fr 252px;
+      gap: 10px;
+      padding: 10px 14px;
+      flex: 1;
+      min-height: 0;
+    }
+    .col { display: flex; flex-direction: column; gap: 10px; }
+
+    /* ── PANEL ── */
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 14px;
+      position: relative;
+    }
+    .panel::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: -1px;
+      width: 13px; height: 13px;
+      border-top: 2px solid var(--accent);
+      border-left: 2px solid var(--accent);
+      pointer-events: none;
+    }
+    .panel::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; right: -1px;
+      width: 13px; height: 13px;
+      border-bottom: 2px solid var(--accent);
+      border-right: 2px solid var(--accent);
+      pointer-events: none;
+    }
+    .c-tr {
+      position: absolute;
+      top: -1px; right: -1px;
+      width: 13px; height: 13px;
+      border-top: 2px solid var(--accent);
+      border-right: 2px solid var(--accent);
+      pointer-events: none;
+    }
+    .c-bl {
+      position: absolute;
+      bottom: -1px; left: -1px;
+      width: 13px; height: 13px;
+      border-bottom: 2px solid var(--accent);
+      border-left: 2px solid var(--accent);
+      pointer-events: none;
+    }
+
+    .ptitle {
+      font-size: 9px;
+      letter-spacing: 4px;
+      color: var(--dim);
+      margin-bottom: 12px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .ptitle-dot {
+      width: 5px; height: 5px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--accent);
+      animation: pdot 2s infinite;
+    }
+
+    /* ── SENSORS ── */
+    .sensor-block {
+      margin-bottom: 13px;
+      padding-bottom: 11px;
+      border-bottom: 1px solid var(--dim2);
+    }
+    .sensor-block:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .sensor-label {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      margin-bottom: 4px;
+    }
+    .sensor-val {
+      font-size: 26px;
+      color: var(--accent);
+      text-shadow: 0 0 10px rgba(0,212,255,0.45);
+      line-height: 1.1;
+      transition: color 0.4s, text-shadow 0.4s;
+    }
+    .sensor-unit { font-size: 11px; color: var(--dim); margin-left: 4px; }
+
+    /* ── BAR ── */
+    .bar-track {
+      height: 3px;
+      background: rgba(0,100,150,0.18);
+      margin-top: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    .bar-track::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(90deg, transparent, transparent 6px, rgba(0,0,0,0.25) 6px, rgba(0,0,0,0.25) 7px);
+    }
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      box-shadow: 0 0 8px var(--accent);
+      transition: width 0.6s ease;
+    }
+
+    /* ── DATA ROWS ── */
+    .drow {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(10,53,80,0.35);
+    }
+    .drow:last-child { border-bottom: none; }
+    .dlabel { color: var(--dim); letter-spacing: 1px; font-size: 9px; }
+    .dval   { color: var(--accent); font-size: 11px; }
+    .dval-red    { color: var(--red);    text-shadow: 0 0 6px rgba(255,56,56,0.4); }
+    .dval-green  { color: var(--green);  text-shadow: 0 0 6px rgba(0,255,136,0.35); }
+    .dval-yellow { color: var(--yellow); }
+
+    /* ── DRIVE BUTTONS ── */
+    .drive-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 62px);
+      grid-template-rows: repeat(3, 62px);
+      gap: 5px;
+      justify-content: center;
+    }
+    .dbtn {
+      width: 62px; height: 62px;
+      background: rgba(0,18,45,0.85);
+      border: 1px solid var(--border-hi);
+      color: var(--accent);
+      font-size: 22px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s;
+      position: relative;
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .dbtn::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: -1px;
+      width: 8px; height: 8px;
+      border-top: 1px solid var(--accent);
+      border-left: 1px solid var(--accent);
+      opacity: 0.6;
+    }
+    .dbtn::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; right: -1px;
+      width: 8px; height: 8px;
+      border-bottom: 1px solid var(--accent);
+      border-right: 1px solid var(--accent);
+      opacity: 0.6;
+    }
+    .dbtn:hover {
+      background: rgba(0,80,150,0.45);
+      border-color: var(--accent);
+      box-shadow: 0 0 18px rgba(0,212,255,0.3), inset 0 0 10px rgba(0,212,255,0.08);
+      color: #fff;
+    }
+    .dbtn.active {
+      background: rgba(0,90,170,0.55);
+      border-color: var(--accent);
+      box-shadow: 0 0 22px rgba(0,212,255,0.45), inset 0 0 12px rgba(0,212,255,0.12);
+      color: #fff;
+    }
+    .dbtn-stop {
+      background: rgba(35,5,5,0.85);
+      border-color: #6b1a1a;
+      color: var(--red);
+      font-size: 10px;
+      letter-spacing: 2px;
+    }
+    .dbtn-stop::before { border-color: var(--red); }
+    .dbtn-stop::after  { border-color: var(--red); }
+    .dbtn-stop:hover {
+      background: rgba(120,20,20,0.45);
+      border-color: var(--red);
+      box-shadow: 0 0 18px rgba(255,56,56,0.3), inset 0 0 10px rgba(255,56,56,0.08);
+      color: #fff;
+    }
+    .dbtn-stop.active {
+      background: rgba(150,25,25,0.55);
+      border-color: var(--red);
+      box-shadow: 0 0 22px rgba(255,56,56,0.45);
+      color: #fff;
+    }
+    .dbtn-empty { background: transparent; border: none; pointer-events: none; }
+
+    /* ── ROVER VIEWPORT ── */
+    .rover-vp {
+      background: #010a1c;
+      border: 1px solid var(--border-hi);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      flex: 1;
+    }
+    .rover-vp-grid {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(0deg,  transparent, transparent 28px, rgba(0,150,200,0.04) 28px, rgba(0,150,200,0.04) 29px),
+        repeating-linear-gradient(90deg, transparent, transparent 28px, rgba(0,150,200,0.04) 28px, rgba(0,150,200,0.04) 29px);
+      pointer-events: none;
+    }
+    .scan-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(0,212,255,0.45) 30%, rgba(0,212,255,0.45) 70%, transparent);
+      animation: vscan 4s linear infinite;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .vp-label {
+      position: absolute;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--dim);
+    }
+
+    /* ── ROCK PANEL ── */
+    .rock-name {
+      font-family: 'Orbitron', monospace;
+      font-size: 30px;
+      font-weight: 900;
+      color: var(--accent);
+      text-shadow: 0 0 22px rgba(0,212,255,0.7), 0 0 44px rgba(0,212,255,0.3);
+      letter-spacing: 5px;
+      transition: opacity 0.4s;
+    }
+    .rock-age {
+      font-family: 'Orbitron', monospace;
+      font-size: 26px;
+      color: var(--accent);
+      text-shadow: 0 0 14px rgba(0,212,255,0.55);
+    }
+
+    /* ── SIGNAL BARS ── */
+    .sig-bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; }
+    .sig-bar  { width: 4px; background: var(--dim2); }
+    .sig-bar.on { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+    .sig-bar:nth-child(1) { height: 4px; }
+    .sig-bar:nth-child(2) { height: 7px; }
+    .sig-bar:nth-child(3) { height: 10px; }
+    .sig-bar:nth-child(4) { height: 14px; }
+
+    /* ── LOG ── */
+    .log-item {
+      font-size: 9px;
+      color: var(--dim);
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(10,53,80,0.3);
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .log-item:last-child { border-bottom: none; }
+    .log-t    { color: var(--accent); margin-right: 5px; }
+    .log-ok   { color: var(--green); }
+    .log-warn { color: var(--yellow); }
+    .log-err  { color: var(--red); }
+
+    /* ── STATUS BAR ── */
+    .status-bar {
+      border-top: 1px solid var(--border-hi);
+      padding: 7px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 9px;
+      color: var(--dim);
+      letter-spacing: 1px;
+      background: rgba(2,8,22,0.97);
+      flex-shrink: 0;
+      position: relative;
+    }
+    .status-bar::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 8%; right: 8%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.25;
+    }
+
+    /* ── STATUS DOT ── */
+    .sdot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+    .sdot-green { background: var(--green); box-shadow: 0 0 5px var(--green); animation: pdot 2s infinite; }
+    .sdot-blue  { background: var(--accent); box-shadow: 0 0 5px var(--accent); animation: pdot 1.7s infinite; }
+
+    /* ── TAG ── */
+    .tag {
+      font-size: 9px;
+      letter-spacing: 2px;
+      padding: 2px 8px;
+      border: 1px solid;
+      display: inline-block;
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .tag-yellow { border-color: var(--yellow); color: var(--yellow); }
+
+    /* ── ANIMATIONS ── */
+    @keyframes pdot {
+      0%,100% { opacity: 1; } 50% { opacity: 0.25; }
+    }
+    @keyframes flicker {
+      0%,89%,91%,93%,100% { opacity: 1; }
+      90%,92% { opacity: 0.55; }
+    }
+    @keyframes vscan {
+      0%   { top: -2px; opacity: 0; }
+      4%   { opacity: 1; }
+      96%  { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+    @keyframes spin-slow { from { transform: rotate(0deg); }  to { transform: rotate(360deg); } }
+    @keyframes spin-rev  { from { transform: rotate(0deg); }  to { transform: rotate(-360deg); } }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="hdr">
+    <div>
+      <div class="hdr-logo">LUNER·ICE</div>
+      <div class="hdr-sub">MISSION CONTROL // GRP-15</div>
+    </div>
+    <div class="hdr-center">
+      <div class="hdr-mission">EEELUNAR ROVER OPERATIONS</div>
+      <div class="hdr-pills">
+        <span><span class="sdot sdot-green"></span>LINK ACTIVE</span>
+        <span><span class="sdot sdot-blue"></span>SENSORS ONLINE</span>
+        <span><span class="sdot sdot-green"></span>DRIVE ARMED</span>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div class="hdr-clock" id="clk">--:--:--</div>
+      <div class="hdr-ip">192.168.0.16</div>
+    </div>
+  </header>
+
+  <!-- MAIN GRID -->
+  <div class="main-grid">
+
+    <!-- LEFT COLUMN -->
+    <div class="col">
+
+      <!-- Sensor Readings -->
+      <div class="panel">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">SENSOR READINGS <div class="ptitle-dot"></div></div>
+        <div class="sensor-block">
+          <div class="sensor-label">INFRARED PULSE RATE</div>
+          <div style="display:flex;align-items:baseline;gap:4px;">
+            <span class="sensor-val" id="irv">547</span>
+            <span class="sensor-unit">s⁻¹</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" id="irbar" style="width:100%"></div></div>
+        </div>
+        <div class="sensor-block">
+          <div class="sensor-label">ULTRASONIC 40kHz</div>
+          <div class="sensor-val" id="usv" style="font-size:20px;">DETECTED</div>
+        </div>
+        <div class="sensor-block">
+          <div class="sensor-label">MAGNETIC FIELD</div>
+          <div class="sensor-val" id="magv" style="font-size:20px;">&#8595; DOWN</div>
+        </div>
+      </div>
+
+      <!-- System Telemetry -->
+      <div class="panel">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">SYSTEM TELEMETRY <div class="ptitle-dot"></div></div>
+        <div class="drow"><span class="dlabel">BATT VOLTAGE</span><span class="dval dval-green">7.42 V</span></div>
+        <div class="drow"><span class="dlabel">BATT LEVEL</span><span class="dval dval-green">87%</span></div>
+        <div class="drow"><span class="dlabel">MCU TEMP</span><span class="dval dval-yellow">38.4 &#176;C</span></div>
+        <div class="drow"><span class="dlabel">UART BAUD</span><span class="dval">115200</span></div>
+        <div class="drow"><span class="dlabel">UPTIME</span><span class="dval" id="uptime">00:00:00</span></div>
+        <div class="drow"><span class="dlabel">PACKETS RX</span><span class="dval" id="pkts">0</span></div>
+      </div>
+
+      <!-- Event Log -->
+      <div class="panel" style="flex:1;min-height:0;overflow:hidden;">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">EVENT LOG <div class="ptitle-dot"></div></div>
+        <div id="log-list">
+          <div class="log-item"><span class="log-t">00:00:01</span><span class="log-ok">[OK] </span>SYSTEM INIT</div>
+          <div class="log-item"><span class="log-t">00:00:02</span><span class="log-ok">[OK] </span>UART LINK ESTABLISHED</div>
+          <div class="log-item"><span class="log-t">00:00:03</span><span class="log-ok">[OK] </span>SENSORS ONLINE</div>
+          <div class="log-item"><span class="log-t">00:00:04</span><span class="log-ok">[OK] </span>DRIVE SYSTEM ARMED</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CENTER COLUMN -->
+    <div class="col">
+
+      <!-- Rover Viewport -->
+      <div class="panel" style="flex:1;padding:0;overflow:hidden;display:flex;flex-direction:column;">
+        <span class="c-tr"></span><span class="c-bl"></span>
+
+        <div class="rover-vp" style="flex:1;">
+          <div class="rover-vp-grid"></div>
+          <div class="scan-line"></div>
+          <div class="vp-label" style="top:10px;left:12px;">RV-CAM-01</div>
+          <div class="vp-label" style="top:10px;right:12px;">BLUEPRINT VIEW</div>
+          <div class="vp-label" style="bottom:10px;left:12px;">X: +0.00  Y: +0.00</div>
+          <div class="vp-label" style="bottom:10px;right:12px;">HDG: 000&#176;</div>
+
+          <!--
+            ┌─────────────────────────────────────────────────┐
+            │  DROP YOUR ROVER GIF HERE                       │
+            │  Set src="your_rover_rotating.gif"              │
+            │  The SVG placeholder will hide automatically    │
+            └─────────────────────────────────────────────────┘
+          -->
+          <img id="rover-img"
+            src="rover_placeholder.gif"
+            alt="Rover Blueprint"
+            style="max-width:260px;max-height:260px;position:relative;z-index:3;display:none;"
+            onload="this.style.display='block';document.getElementById('rover-svg-wrap').style.display='none';">
+
+          <!-- SVG blueprint placeholder shown until rover gif loads -->
+          <div id="rover-svg-wrap" style="position:relative;z-index:3;text-align:center;">
+            <div style="position:relative;width:240px;height:240px;margin:0 auto;">
+
+              <!-- Outer spinning dashed ring -->
+              <svg width="240" height="240" viewBox="0 0 240 240"
+                style="position:absolute;top:0;left:0;animation:spin-rev 22s linear infinite;">
+                <circle cx="120" cy="120" r="116" stroke="#00d4ff" stroke-width="0.5" fill="none"
+                  stroke-dasharray="4 9" opacity="0.22"/>
+              </svg>
+
+              <!-- Main rover blueprint (counter-spins slightly) -->
+              <svg width="240" height="240" viewBox="0 0 240 240"
+                style="position:absolute;top:0;left:0;animation:spin-slow 50s linear infinite;">
+                <style>
+                  .rv  { stroke:#00d4ff; fill:none; stroke-width:0.7; opacity:0.4; }
+                  .rv2 { stroke:#00d4ff; fill:none; stroke-width:1.1; opacity:0.72; }
+                  .rvf { stroke:#00d4ff; fill:rgba(0,212,255,0.05); stroke-width:0.9; opacity:0.65; }
+                  .rvt { fill:#00d4ff; font-family:'Share Tech Mono',monospace; font-size:7px; opacity:0.45; letter-spacing:1px; }
+                </style>
+                <circle class="rv2" cx="120" cy="120" r="107"/>
+                <circle class="rv"  cx="120" cy="120" r="94"/>
+                <!-- Crosshairs -->
+                <line class="rv" x1="8"   y1="120" x2="232" y2="120"/>
+                <line class="rv" x1="120" y1="8"   x2="120" y2="232"/>
+                <!-- Cardinal ticks -->
+                <line class="rv2" x1="120" y1="13"  x2="120" y2="26"/>
+                <line class="rv2" x1="120" y1="214" x2="120" y2="227"/>
+                <line class="rv2" x1="13"  y1="120" x2="26"  y2="120"/>
+                <line class="rv2" x1="214" y1="120" x2="227" y2="120"/>
+                <!-- Chassis -->
+                <rect class="rvf" x="82" y="86" width="76" height="68" rx="4"/>
+                <!-- Wheels -->
+                <rect class="rv2" x="60" y="84"  width="18" height="25" rx="3"/>
+                <rect class="rv2" x="162" y="84"  width="18" height="25" rx="3"/>
+                <rect class="rv2" x="60" y="131" width="18" height="25" rx="3"/>
+                <rect class="rv2" x="162" y="131" width="18" height="25" rx="3"/>
+                <!-- Axles -->
+                <line class="rv" x1="78"  y1="96"  x2="82"  y2="96"/>
+                <line class="rv" x1="158" y1="96"  x2="162" y2="96"/>
+                <line class="rv" x1="78"  y1="143" x2="82"  y2="143"/>
+                <line class="rv" x1="158" y1="143" x2="162" y2="143"/>
+                <!-- Sensor arm -->
+                <rect class="rv2" x="102" y="65" width="36" height="21" rx="2"/>
+                <line class="rv"  x1="120" y1="65" x2="120" y2="86"/>
+                <circle class="rv2" cx="120" cy="58" r="8"/>
+                <circle class="rv"  cx="120" cy="58" r="3"/>
+                <!-- Body detail -->
+                <rect class="rv" x="92"  y="95" width="56" height="50" rx="2"/>
+                <line class="rv" x1="120" y1="95"  x2="120" y2="145"/>
+                <line class="rv" x1="92"  y1="120" x2="148" y2="120"/>
+                <!-- Dimension lines -->
+                <line class="rv" x1="60"  y1="170" x2="180" y2="170"/>
+                <line class="rv" x1="60"  y1="167" x2="60"  y2="173"/>
+                <line class="rv" x1="180" y1="167" x2="180" y2="173"/>
+                <text class="rvt" x="104" y="177">W: 220mm</text>
+                <!-- Labels -->
+                <text class="rvt" x="107" y="62">SENSOR</text>
+                <text class="rvt" x="61"  y="98">FL</text>
+                <text class="rvt" x="163" y="98">FR</text>
+                <text class="rvt" x="61"  y="145">RL</text>
+                <text class="rvt" x="163" y="145">RR</text>
+                <!-- North dot -->
+                <circle cx="120" cy="14" r="3" fill="rgba(0,212,255,0.55)" stroke="#00d4ff" stroke-width="0.8"/>
+                <text class="rvt" x="125" y="18">N</text>
+              </svg>
+
+            </div>
+
+            <div style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:var(--accent);opacity:0.7;margin-top:8px;">
+              LUNER-ICE ROVER Mk.I
+            </div>
+            <div style="font-size:8px;letter-spacing:2px;color:var(--dim);margin-top:4px;">
+              &#x2191; REPLACE WITH ROVER GIF &#x2191;
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Rock Classification -->
+      <div class="panel">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">ROCK CLASSIFICATION <div class="ptitle-dot"></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <div>
+            <div style="font-size:9px;letter-spacing:3px;color:var(--dim);margin-bottom:6px;">SPECIMEN TYPE</div>
+            <div class="rock-name" id="rtype">BASALTOID</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:9px;letter-spacing:3px;color:var(--dim);margin-bottom:6px;">ESTIMATED AGE</div>
+            <div class="rock-age"><span id="rage">1.23</span> <span style="font-size:13px;color:var(--dim);">Ga</span></div>
+          </div>
+        </div>
+        <div style="margin-top:13px;">
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;">
+            <span>SPECTRAL MATCH</span><span id="spec-pct" style="color:var(--accent);">94%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" id="spec-bar" style="width:94%"></div></div>
+        </div>
+        <div style="margin-top:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;">
+            <span>CONFIDENCE</span><span id="conf-pct" style="color:var(--accent);">88%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" id="conf-bar" style="width:88%"></div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="col">
+
+      <!-- Drive Control -->
+      <div class="panel">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">DRIVE CONTROL <div class="ptitle-dot"></div></div>
+        <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-bottom:11px;">WASD OR CLICK</div>
+
+        <div class="drive-grid">
+          <div class="dbtn-empty"></div>
+          <button id="btn-fwd"   class="dbtn" onmousedown="cmd('forward',this)"  onmouseup="rel(this)" onmouseleave="rel(this)"><i class="ti ti-arrow-up"></i></button>
+          <div class="dbtn-empty"></div>
+
+          <button id="btn-left"  class="dbtn" onmousedown="cmd('left',this)"     onmouseup="rel(this)" onmouseleave="rel(this)"><i class="ti ti-arrow-left"></i></button>
+          <button id="btn-stop"  class="dbtn dbtn-stop" onmousedown="cmd('stop',this)" onmouseup="rel(this)" onmouseleave="rel(this)">STOP</button>
+          <button id="btn-right" class="dbtn" onmousedown="cmd('right',this)"    onmouseup="rel(this)" onmouseleave="rel(this)"><i class="ti ti-arrow-right"></i></button>
+
+          <div class="dbtn-empty"></div>
+          <button id="btn-back"  class="dbtn" onmousedown="cmd('backward',this)" onmouseup="rel(this)" onmouseleave="rel(this)"><i class="ti ti-arrow-down"></i></button>
+          <div class="dbtn-empty"></div>
+        </div>
+
+        <div id="cmdlabel" style="font-size:10px;letter-spacing:4px;color:var(--dim);text-align:center;margin-top:13px;min-height:16px;">STANDBY</div>
+      </div>
+
+      <!-- Comms & Signal -->
+      <div class="panel">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">COMMS &amp; SIGNAL <div class="ptitle-dot"></div></div>
+        <div class="drow">
+          <span class="dlabel">RF SIGNAL</span>
+          <span class="sig-bars">
+            <span class="sig-bar on"></span>
+            <span class="sig-bar on"></span>
+            <span class="sig-bar on"></span>
+            <span class="sig-bar on"></span>
+          </span>
+        </div>
+        <div class="drow"><span class="dlabel">FREQUENCY</span><span class="dval">2.4 GHz</span></div>
+        <div class="drow"><span class="dlabel">IP ADDRESS</span><span class="dval">192.168.0.16</span></div>
+        <div class="drow"><span class="dlabel">LATENCY</span><span class="dval dval-green">4 ms</span></div>
+        <div class="drow"><span class="dlabel">PROTOCOL</span><span class="dval">UART</span></div>
+      </div>
+
+      <!-- Mission Info -->
+      <div class="panel" style="flex:1;">
+        <span class="c-tr"></span><span class="c-bl"></span>
+        <div class="ptitle">MISSION INFO <div class="ptitle-dot"></div></div>
+        <div class="drow"><span class="dlabel">MISSION</span><span class="dval">LUNER-ICE</span></div>
+        <div class="drow"><span class="dlabel">GROUP</span><span class="dval">GRP-15</span></div>
+        <div class="drow"><span class="dlabel">OPERATOR</span><span class="dval">EEE ROVER</span></div>
+        <div class="drow"><span class="dlabel">MODE</span><span class="dval dval-yellow">DEMO</span></div>
+        <div class="drow"><span class="dlabel">TERRAIN</span><span class="dval">LUNAR SIM</span></div>
+        <div class="drow"><span class="dlabel">SAMPLES</span><span class="dval">4</span></div>
+        <div style="margin-top:14px;text-align:center;">
+          <span class="tag tag-yellow">&#9672; DEMO — CYCLING ROCKS</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <footer class="status-bar">
+    <span><span class="sdot sdot-green"></span>SENSOR REFRESH: 1s</span>
+    <span><span class="sdot sdot-blue"></span>UART BOARD1 &#8594; BOARD2</span>
+    <span><span class="sdot sdot-green"></span>SYSTEM NOMINAL</span>
+    <span><span class="sdot sdot-green"></span>DRIVE: ARMED</span>
+    <span>v1.0.0 // EEELUNAR</span>
+  </footer>
+
+</div>
+<script>
+const rocks = [
+  {type:'BASALTOID', age:'1.23', ir:547, us:'DETECTED', mag:'&#8595; DOWN', spec:94, conf:88},
+  {type:'GRAVION',   age:'2.87', ir:312, us:'NONE',     mag:'&#8595; DOWN', spec:81, conf:76},
+  {type:'REGOLIX',   age:'0.95', ir:312, us:'DETECTED', mag:'&#8593; UP',   spec:89, conf:92},
+  {type:'LUNARITE',  age:'3.41', ir:547, us:'NONE',     mag:'&#8593; UP',   spec:96, conf:85},
+];
+let ri = 0;
+
+function setRock(r) {
+  const rt = document.getElementById('rtype');
+  rt.style.opacity = '0';
+  setTimeout(() => {
+    rt.textContent = r.type;
+    document.getElementById('rage').textContent = r.age;
+    document.getElementById('irv').textContent = r.ir;
+    document.getElementById('irbar').style.width = (r.ir / 547 * 100) + '%';
+    const usEl = document.getElementById('usv');
+    usEl.textContent = r.us;
+    usEl.style.color = r.us === 'DETECTED' ? 'var(--accent)' : 'var(--red)';
+    usEl.style.textShadow = r.us === 'DETECTED'
+      ? '0 0 10px rgba(0,212,255,0.45)' : '0 0 10px rgba(255,56,56,0.45)';
+    document.getElementById('magv').innerHTML = r.mag;
+    document.getElementById('spec-pct').textContent = r.spec + '%';
+    document.getElementById('spec-bar').style.width = r.spec + '%';
+    document.getElementById('conf-pct').textContent = r.conf + '%';
+    document.getElementById('conf-bar').style.width = r.conf + '%';
+    rt.style.opacity = '1';
+    addLog('ROCK → ' + r.type + '  ' + r.age + 'Ga', 'ok');
+  }, 400);
+}
+
+setInterval(() => { ri = (ri + 1) % rocks.length; setRock(rocks[ri]); }, 3500);
+
+// Clock
+setInterval(() => {
+  document.getElementById('clk').textContent = new Date().toLocaleTimeString('en-GB');
+}, 1000);
+document.getElementById('clk').textContent = new Date().toLocaleTimeString('en-GB');
+
+// Uptime
+const startTime = Date.now();
+setInterval(() => {
+  const s = Math.floor((Date.now() - startTime) / 1000);
+  const h = String(Math.floor(s / 3600)).padStart(2, '0');
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  document.getElementById('uptime').textContent = h + ':' + m + ':' + ss;
+}, 1000);
+
+// Packet counter
+let pkts = 0;
+setInterval(() => {
+  pkts += Math.floor(Math.random() * 5) + 1;
+  document.getElementById('pkts').textContent = pkts.toLocaleString();
+}, 1000);
+
+// Event log
+function addLog(msg, level) {
+  const list = document.getElementById('log-list');
+  const t = new Date().toLocaleTimeString('en-GB');
+  const cls = level === 'ok' ? 'log-ok' : level === 'warn' ? 'log-warn' : 'log-err';
+  const tag = level === 'ok' ? '[OK] ' : level === 'warn' ? '[WRN]' : '[ERR]';
+  const el = document.createElement('div');
+  el.className = 'log-item';
+  el.innerHTML = '<span class="log-t">' + t + '</span><span class="' + cls + '">' + tag + '</span>' + msg;
+  list.prepend(el);
+  while (list.children.length > 20) list.removeChild(list.lastChild);
+}
+
+// Drive control
+const keyMap   = { w:'btn-fwd', a:'btn-left', s:'btn-back', d:'btn-right', ' ':'btn-stop' };
+const cmdNames = { 'btn-fwd':'FORWARD', 'btn-left':'LEFT', 'btn-back':'BACKWARD', 'btn-right':'RIGHT', 'btn-stop':'STOP' };
+
+function cmd(name, btn) {
+  btn.classList.add('active');
+  const lbl = document.getElementById('cmdlabel');
+  lbl.textContent = name.toUpperCase();
+  lbl.style.color = btn.id === 'btn-stop' ? 'var(--red)' : 'var(--accent)';
+  addLog('CMD → ' + name.toUpperCase(), 'ok');
+}
+function rel(btn) {
+  btn.classList.remove('active');
+  setTimeout(() => {
+    document.getElementById('cmdlabel').textContent = 'STANDBY';
+    document.getElementById('cmdlabel').style.color = 'var(--dim)';
+  }, 300);
+}
+
+document.addEventListener('keydown', e => {
+  const id = keyMap[e.key.toLowerCase()];
+  if (!id) return;
+  const btn = document.getElementById(id);
+  if (!btn || btn.classList.contains('active')) return;
+  btn.classList.add('active');
+  const lbl = document.getElementById('cmdlabel');
+  lbl.textContent = cmdNames[id];
+  lbl.style.color = id === 'btn-stop' ? 'var(--red)' : 'var(--accent)';
+  addLog('CMD → ' + cmdNames[id], 'ok');
+});
+document.addEventListener('keyup', e => {
+  const id = keyMap[e.key.toLowerCase()];
+  if (!id) return;
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  btn.classList.remove('active');
+  setTimeout(() => {
+    document.getElementById('cmdlabel').textContent = 'STANDBY';
+    document.getElementById('cmdlabel').style.color = 'var(--dim)';
+  }, 300);
+});
+</script>
+</body>
+</html>
