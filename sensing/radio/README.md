@@ -11,7 +11,7 @@
 flowchart TD
     A[🪨 Rock transmits 89kHz ASK signal] --> B
 
-    B[1. Coil Antenna\nAir-cored inductor, coiled wire\nPicks up 89kHz radio waves]
+    B[1. Coil Antenna\nFerrite-cored inductor, coiled wire\nPicks up 89kHz radio waves]
     B --> C
 
     C[2. Tuned LC Circuit\nAntenna coil + capacitor\nResonates at 89kHz, filters noise]
@@ -23,17 +23,13 @@ flowchart TD
     E[4. Envelope Detector\nDiode + capacitor rectifier\nStrips 89kHz carrier, keeps data shape]
     E --> F
 
-    F{Signal strong enough?}
-    F -- Yes --> G
-    F -- No: use precision rectifier --> G
+    F[5. Comparator\nCompares against threshold voltage\nOutputs clean binary 0s and 1s]
+    F --> G
 
-    G[5. Comparator\nCompares against threshold voltage\nOutputs clean binary 0s and 1s]
+    G[6. Metro M0 — UART Decode\nPin 0 receives binary signal\nDecodes packets at 600 bps]
     G --> H
 
-    H[6. Metro M0 — UART Decode\nPin 0 receives binary signal\nDecodes packets at 600 bps]
-    H --> I
-
-    I[✅ Age value extracted\ne.g. #123 → 1.23 billion years]
+    H[✅ Age value extracted\ne.g. #123 → 1.23 billion years]
 ```
 
 ---
@@ -42,12 +38,13 @@ flowchart TD
 
 ### Step 1 — Coil Antenna
 
-> Wind copper wire into a coil to act as an air-cored inductor. Use the LCR Bridge in the lab to measure its inductance. A larger diameter coil picks up more signal.
+> Wind copper wire around a ferrite core to act as an inductor. A ferrite core was chosen over an air core as it significantly increases inductance for the same number of turns and physical size, improving sensitivity to weak radio signals. Use the LCR Bridge in the lab to measure its inductance.
+
+**Inductance calculations:** [COIL_CALCULATIONS.md](COIL_CALCULATIONS.md)
 
 **Photo / diagram:**
 
 ![Coil antenna photo](images/step1_coil_antenna.jpg)
-
 
 ---
 
@@ -58,7 +55,6 @@ flowchart TD
 **Photo / diagram:**
 
 ![LC circuit photo](images/step2_LC_circuit.jpg)
-
 
 ---
 
@@ -72,17 +68,15 @@ flowchart TD
 
 ![Amplifier circuit photo](images/step3_amplifier.jpg)
 
-
 ---
 
 ### Step 4 — Envelope Detector
 
-> The Metro M0 can't sample at 89kHz, so you need to strip the carrier and extract just the on/off data shape. A diode + capacitor does this. If signal amplitude is too small for a regular diode (0.7V drop), use a precision rectifier with an opamp.
+> The Metro M0 can't sample at 89kHz, so you need to strip the carrier and extract just the on/off data shape. A diode + capacitor does this.
 
 **Photo / diagram:**
 
 ![Envelope detector photo](images/step4_envelope_detector.jpg)
-
 
 ---
 
@@ -93,7 +87,6 @@ flowchart TD
 **Photo / diagram:**
 
 ![Comparator circuit photo](images/step5_comparator.jpg)
-
 
 ---
 
@@ -119,31 +112,30 @@ void loop() {
 
 ![Metro M0 wiring photo](images/step6_metro_wiring.jpg)
 
-
 ---
 
 ## Component Research
 
 | Component | Purpose | Options considered | Est. cost | Selected |
 |-----------|---------|-------------------|-----------|---------|
-| Magnet wire | Coil antenna | 0.2mm enamelled copper | ~£2 | TBC |
-| Capacitor | LC tuning | Ceramic, calculated value | ~£0.50 | TBC |
-| Opamp | Amplifier + rectifier | TBC — high slew rate | ~£1–3 | TBC |
-| Diode | Envelope detector | 1N4148 or Schottky | ~£0.10 | TBC |
-| Resistors | Comparator threshold | Standard values | ~£0.50 | TBC |
+| Magnet wire | Coil antenna | 0.4mm enamelled copper | £0 | ✅ Used |
+| Capacitor | LC tuning | Ceramic, calculated value | ~£0 | TBC |
+| Opamp | Amplifier + rectifier | TBC — high slew rate | ~£1.44 | TBC |
+| Diode | Envelope detector | 1N4148 or Schottky | ~£0 | TBC |
+| Resistors | Comparator threshold | Standard values | ~£0 | TBC |
 
 ---
 
 ## Testing Checklist
 
-- [ ] Coil built and inductance measured with LCR Bridge
-- [ ] LC circuit resonating at 89kHz (verify with oscilloscope)
-- [ ] Amplifier output visible on oscilloscope
-- [ ] Envelope detector showing clean data shape
-- [ ] Comparator outputting clean 0s and 1s
+- [x] Coil built and inductance measured with LCR Bridge
+- [x] LC circuit resonating at 89kHz (verify with oscilloscope)
+- [x] Amplifier output visible on oscilloscope
+- [x] Envelope detector showing clean data shape
+- [x] Comparator outputting clean 0s and 1s
 - [ ] Metro receiving and printing `#` character via Serial monitor
 - [ ] Full age string decoded correctly from rock simulator
 
 ---
 
-*Last updated: 2026-05-14*
+*Last updated: 2026-05-31*
