@@ -8,7 +8,6 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/include",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/src",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiWebServer/src",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFi101_Generic/src",
@@ -39,7 +38,6 @@
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/include",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/src",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiWebServer/src",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFi101_Generic/src",
