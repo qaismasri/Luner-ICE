@@ -1,0 +1,100 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/include",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiWebServer/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFi101_Generic/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiMulti_Generic/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiNINA_Generic/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiEspAT/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFi101/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SPI",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_ZeroDMA",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/ESP_AT_Lib/src",
+                "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/Functional-Vlpp/src",
+                "C:/Users/shiva/.platformio/packages/framework-cmsis/CMSIS/Core/Include",
+                "C:/Users/shiva/.platformio/packages/framework-cmsis-atmel/CMSIS/Device/ATMEL",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/cores/arduino",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_TinyUSB_Arduino/src/arduino",
+                "C:/Users/shiva/.platformio/packages/framework-cmsis/CMSIS/DSP/Include",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/variants/metro_m0",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/CI_Tests",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/HID",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/I2S/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SAMD_AnalogCorrection/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SDU/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/USBHost/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Wire",
+                ""
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/include",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiWebServer/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFi101_Generic/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiMulti_Generic/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiNINA_Generic/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFiEspAT/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/WiFi101/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SPI",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_ZeroDMA",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/ESP_AT_Lib/src",
+                    "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/libdeps/adafruit_metro_m0/Functional-Vlpp/src",
+                    "C:/Users/shiva/.platformio/packages/framework-cmsis/CMSIS/Core/Include",
+                    "C:/Users/shiva/.platformio/packages/framework-cmsis-atmel/CMSIS/Device/ATMEL",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/cores/arduino",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Adafruit_TinyUSB_Arduino/src/arduino",
+                    "C:/Users/shiva/.platformio/packages/framework-cmsis/CMSIS/DSP/Include",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/variants/metro_m0",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/CI_Tests",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/HID",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/I2S/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SAMD_AnalogCorrection/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SDU/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/USBHost/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Wire",
+                    ""
+                ]
+            },
+            "defines": [
+                "PLATFORMIO=60119",
+                "ARDUINO_SAMD_ZERO",
+                "ADAFRUIT_METRO_M0_EXPRESS",
+                "ARM_MATH_CM0PLUS",
+                "__SAMD21G18A__",
+                "ARDUINO=10805",
+                "F_CPU=48000000L",
+                "USBCON",
+                "USB_VID=0x239A",
+                "USB_PID=0x8013",
+                "USB_PRODUCT=\"Metro M0 Expres\"",
+                "USB_MANUFACTURER=\"Adafruit\"",
+                "ARDUINO_ARCH_SAMD",
+                "USB_CONFIG_POWER=100",
+                "ARDUINO_SAMD_ADAFRUIT",
+                ""
+            ],
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++11",
+            "compilerPath": "C:/Users/shiva/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe",
+            "compilerArgs": [
+                "-mcpu=cortex-m0plus",
+                "-mthumb",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}
