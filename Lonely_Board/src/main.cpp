@@ -7,8 +7,8 @@
 #include <WiFiWebServer.h>
 
 // ── WIFI ──────────────────────────────────────────────────────────────────────
-const char ssid[]      = "Shivang iPhone";
-const char pass[]      = "heythere";
+const char ssid[]      = "EEERover";
+const char pass[]      = "exhibition";
 const int  groupNumber = 15;
 
 // ── MOTOR PINS ────────────────────────────────────────────────────────────────
@@ -753,6 +753,7 @@ void handleNotFound() { server.send(404,"text/plain","404: Not Found"); }
 // ── SETUP ─────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(9600);
+  while (!Serial);   // wait for Serial Monitor to connect (native USB boards)
   pinMode(ultrasonicPin, INPUT);
   pinMode(leftEn,OUTPUT);  pinMode(leftDir,OUTPUT);
   pinMode(rightEn,OUTPUT); pinMode(rightDir,OUTPUT);
