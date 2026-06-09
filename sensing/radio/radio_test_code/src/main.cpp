@@ -3,12 +3,13 @@
 String message = "";
 
 void setup() {
+  delay(2000);  // gives monitor time to connect
   Serial.begin(115200);
-  Serial1.begin(600);
   Serial.println("Started");
+  Serial1.begin(600);
 }
 
-void loop() {
+void loop() { 
   if (Serial1.available()) {
     char c = Serial1.read();
     
