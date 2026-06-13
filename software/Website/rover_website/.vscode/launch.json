@@ -12,11 +12,11 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug",
-            "executable": "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/build/adafruit_metro_m0/firmware.elf",
+            "executable": "C:/Github repos/Luner-ICE/software/Website/rover_website/.pio/build/adafruit_metro_m0/firmware.elf",
             "projectEnvName": "adafruit_metro_m0",
-            "toolchainBinDir": "C:/Users/shiva/.platformio/packages/toolchain-gccarmnoneeabi/bin",
+            "toolchainBinDir": "C:/Users/qais1/.platformio/packages/toolchain-gccarmnoneeabi/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/shiva/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd",
+            "svdPath": "C:/Users/qais1/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd",
             "preLaunchTask": {
                 "type": "PlatformIO",
                 "task": "Pre-Debug"
@@ -26,21 +26,21 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
-            "executable": "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/build/adafruit_metro_m0/firmware.elf",
+            "executable": "C:/Github repos/Luner-ICE/software/Website/rover_website/.pio/build/adafruit_metro_m0/firmware.elf",
             "projectEnvName": "adafruit_metro_m0",
-            "toolchainBinDir": "C:/Users/shiva/.platformio/packages/toolchain-gccarmnoneeabi/bin",
+            "toolchainBinDir": "C:/Users/qais1/.platformio/packages/toolchain-gccarmnoneeabi/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/shiva/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd"
+            "svdPath": "C:/Users/qais1/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd"
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (without uploading)",
-            "executable": "C:/Users/shiva/Documents/GitHub/Luner-ICE/software/Website/rover_website/.pio/build/adafruit_metro_m0/firmware.elf",
+            "executable": "C:/Github repos/Luner-ICE/software/Website/rover_website/.pio/build/adafruit_metro_m0/firmware.elf",
             "projectEnvName": "adafruit_metro_m0",
-            "toolchainBinDir": "C:/Users/shiva/.platformio/packages/toolchain-gccarmnoneeabi/bin",
+            "toolchainBinDir": "C:/Users/qais1/.platformio/packages/toolchain-gccarmnoneeabi/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "C:/Users/shiva/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd",
+            "svdPath": "C:/Users/qais1/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd",
             "loadMode": "manual"
         }
     ]

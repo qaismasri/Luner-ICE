@@ -1,4 +1,4 @@
-/*
+﻿/*
  * ============================================================
  *  EEELunarRover — Board 2  (Control + Web Interface)
  *  LUNER-ICE Mission Control  v1.1.0
@@ -29,18 +29,21 @@
 #include <WiFiWebServer.h>
 
 // ── WIFI ──────────────────────────────────────────────────────────────────────
-const char ssid[]      = "EEERover";
-const char pass[]      = "exhibition";
+const char ssid[]      = "QaisIPhone";
+const char pass[]      = "1234567890";
 const int  groupNumber = 15;
 
 // ── MOTOR PINS ────────────────────────────────────────────────────────────────
+// Each motor is controlled by two pins:
+//   En  (Enable)    — PWM pin.  analogWrite(0–255) sets speed. 0 = stopped.
+//   Dir (Direction) — digital.  HIGH = forward, LOW = reverse for that wheel.
 const int rightEn  = 8;
 const int rightDir = 9;
 const int leftEn   = 4;
 const int leftDir  = 6;
 
-const int fullSpeed = 255;
-const int turnSpeed = 80;
+const int fullSpeed = 255;  // Max PWM (analogWrite range is 0–255)
+const int turnSpeed = 80;   // Reduced speed for the inside wheel during soft diagonal turns
 
 // ── SENSOR DATA (updated by Board 1 via Serial1) ──────────────────────────────
 String rockAge            = "-.-";
@@ -231,6 +234,8 @@ const char webpage[] =
 "    @keyframes vscan   { 0% { top: -2px; opacity: 0; } 4% { opacity: 1; } 96% { opacity: 1; } 100% { top: 100%; opacity: 0; } }\n"
 "    @keyframes spin-slow { from { transform: rotate(0deg); }  to { transform: rotate(360deg); } }\n"
 "    @keyframes spin-rev  { from { transform: rotate(0deg); }  to { transform: rotate(-360deg); } }\n"
+"    .ctrl-select { width:100%; margin-top:8px; padding:7px 8px; background:rgba(0,18,45,0.85); border:1px solid var(--border-hi); color:var(--accent); font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:3px; cursor:pointer; appearance:none; -webkit-appearance:none; text-align:center; }\n"
+"    .ctrl-select option { background:#020b18; color:var(--accent); }\n"
 "  </style>\n"
 "</head>\n"
 "<body>\n"
@@ -397,7 +402,7 @@ const char webpage[] =
 "      <div class=\"panel\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
 "        <div class=\"ptitle\">DRIVE CONTROL <div class=\"ptitle-dot\"></div></div>\n"
-"        <div style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-bottom:11px;\">WASD OR CLICK</div>\n"
+"        <div id=\"ctrl-hint\" style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-bottom:11px;\">WASD OR CLICK</div>\n"
 "        <div class=\"drive-grid\">\n"
 "          <div class=\"dbtn-empty\"></div>\n"
 "          <button id=\"btn-fwd\"   class=\"dbtn\"           onmousedown=\"cmd('forward',this)\"  onmouseup=\"rel(this)\" onmouseleave=\"rel(this)\">&#9650;</button>\n"
@@ -410,10 +415,15 @@ const char webpage[] =
 "          <div class=\"dbtn-empty\"></div>\n"
 "        </div>\n"
 "        <div id=\"cmdlabel\" style=\"font-size:10px;letter-spacing:4px;color:var(--dim);text-align:center;margin-top:13px;min-height:16px;\">STANDBY</div>\n"
+"        <select id=\"ctrl-select\" class=\"ctrl-select\" onchange=\"setControlMode(this.value)\">\n"
+"          <option value=\"keyboard\">KEYBOARD</option>\n"
+"          <option value=\"controller\">CONTROLLER</option>\n"
+"        </select>\n"
 "\n"
 "        <!-- SCAN BUTTON — press when rover is next to a rock -->\n"
 "        <button id=\"btn-scan\" class=\"scan-btn\" onclick=\"startScan()\">SCAN ROCK</button>\n"
 "        <div id=\"scan-status\" style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-top:6px;min-height:13px;\"></div>\n"
+"        <div class=\"drow\" style=\"margin-top:10px;\"><span class=\"dlabel\">GAMEPAD</span><span class=\"dval dval-red\" id=\"gp-status\">DISCONNECTED</span></div>\n"
 "      </div>\n"
 "\n"
 "      <div class=\"panel\">\n"
@@ -596,6 +606,8 @@ const char webpage[] =
 "updateSensors();\n"
 "\n"
 "// ── DRIVE CONTROL ──\n"
+"// routeMap translates button names to Arduino URL routes.\n"
+"// routeNames translates routes back to display labels for the UI.\n"
 "var routeMap = {\n"
 "  forward:'/forward', backward:'/backward',\n"
 "  left:'/left', right:'/right', stop:'/stop'\n"
@@ -607,81 +619,236 @@ const char webpage[] =
 "  '/backleft':'BACK-LEFT', '/backright':'BACK-RIGHT'\n"
 "};\n"
 "\n"
+"// Updates the text label beneath the WASD grid to show current direction\n"
 "function setLabel(text, active) {\n"
 "  var lbl = document.getElementById('cmdlabel');\n"
 "  lbl.textContent = text;\n"
 "  lbl.style.color = active ? (text === 'STOP' ? 'var(--red)' : 'var(--accent)') : 'var(--dim)';\n"
 "}\n"
 "\n"
+"// Called on mouse-down of an on-screen button — sends the command and highlights the button.\n"
+"// Also updates lastRoute so the keyboard poller does not immediately override it.\n"
 "function cmd(name, btn) {\n"
-"  fetch(routeMap[name] || '/stop');\n"
+"  var route = routeMap[name] || '/stop';\n"
+"  fetch(route);\n"
+"  lastRoute = route;\n"
 "  btn.classList.add('active');\n"
 "  setLabel(name.toUpperCase(), true);\n"
 "}\n"
+"// Called on mouse-up or mouse-leave — sends stop and removes the active highlight.\n"
 "function rel(btn) {\n"
 "  if (!btn.classList.contains('active')) return;\n"
 "  fetch('/stop');\n"
+"  lastRoute = '/stop';\n"
 "  btn.classList.remove('active');\n"
 "  setTimeout(function() { setLabel('STANDBY', false); }, 250);\n"
 "}\n"
 "\n"
+"// ── CONTROL MODE ──\n"
+"// ctrlMode tracks which input method is active ('keyboard' or 'controller').\n"
+"// lastRoute tracks the last command sent to the Arduino so polling functions\n"
+"// can skip the fetch if nothing has changed — preventing request queue build-up.\n"
+"var ctrlMode = 'keyboard';\n"
+"var kbPollHandle = null;\n"
+"var lastRoute = '/stop';\n"
+"\n"
+"// Switches between keyboard and controller mode.\n"
+"// Sends a stop command first so the rover halts immediately on any switch.\n"
+"// Starts or stops the keyboard polling interval accordingly.\n"
+"// Gamepad polling is always running once a controller is connected — the gpPoll\n"
+"// function checks ctrlMode itself and returns early if not in controller mode.\n"
+"function setControlMode(mode) {\n"
+"  ctrlMode = mode;\n"
+"  fetch('/stop').catch(function(){});  // immediate stop on any mode switch\n"
+"  lastRoute = '/stop';\n"
+"  setLabel('STANDBY', false);\n"
+"  keys = {};  // clear any held key state\n"
+"  ['btn-fwd','btn-left','btn-back','btn-right'].forEach(function(id) {\n"
+"    document.getElementById(id).classList.remove('active');\n"
+"  });\n"
+"  if (mode === 'keyboard') {\n"
+"    document.getElementById('ctrl-hint').textContent = 'WASD OR CLICK';\n"
+"    if (!kbPollHandle) kbPollHandle = setInterval(kbPoll, 50);  // start 50ms keyboard poll\n"
+"    addLog('MODE: KEYBOARD', 'ok');\n"
+"  } else {\n"
+"    document.getElementById('ctrl-hint').textContent = 'CONTROLLER ACTIVE';\n"
+"    clearInterval(kbPollHandle); kbPollHandle = null;  // stop keyboard poll\n"
+"    gpLastL = null; gpLastR = null;  // reset so first gamepad input always sends\n"
+"    addLog('MODE: CONTROLLER', 'ok');\n"
+"  }\n"
+"}\n"
+"\n"
 "// ── WASD KEYBOARD ──\n"
+"// keys{} stores which WASD keys are currently held down (true/false).\n"
+"// kMap links each key to the corresponding on-screen button ID for visual feedback.\n"
 "var keys = {};\n"
 "var kMap  = { w:'btn-fwd', a:'btn-left', s:'btn-back', d:'btn-right' };\n"
 "\n"
-"function updateMovement() {\n"
-"  var route = '/stop';\n"
-"  if      (keys.w && keys.a) route = '/forwardleft';\n"
-"  else if (keys.w && keys.d) route = '/forwardright';\n"
-"  else if (keys.s && keys.a) route = '/backleft';\n"
-"  else if (keys.s && keys.d) route = '/backright';\n"
-"  else if (keys.w)           route = '/forward';\n"
-"  else if (keys.s)           route = '/backward';\n"
-"  else if (keys.a)           route = '/left';\n"
-"  else if (keys.d)           route = '/right';\n"
-"  fetch(route);\n"
+"// Translates the current set of held keys into an Arduino route.\n"
+"// Two-key combinations map to diagonal routes so the rover can arc while moving.\n"
+"function getKeyRoute() {\n"
+"  if (keys.w && keys.a) return '/forwardleft';   // W+A → arc forward-left\n"
+"  if (keys.w && keys.d) return '/forwardright';  // W+D → arc forward-right\n"
+"  if (keys.s && keys.a) return '/backleft';      // S+A → arc back-left\n"
+"  if (keys.s && keys.d) return '/backright';     // S+D → arc back-right\n"
+"  if (keys.w)           return '/forward';\n"
+"  if (keys.s)           return '/backward';\n"
+"  if (keys.a)           return '/left';          // A alone → pivot left on the spot\n"
+"  if (keys.d)           return '/right';         // D alone → pivot right on the spot\n"
+"  return '/stop';\n"
+"}\n"
+"\n"
+"// Runs every 50ms. Computes the desired route from current key state and only\n"
+"// sends a fetch if the route has changed since the last send.\n"
+"// This prevents HTTP request queue build-up: holding a key sends exactly one\n"
+"// request, not one every 50ms. The Arduino only receives a new command when\n"
+"// something actually changes (key pressed or released).\n"
+"function kbPoll() {\n"
+"  var route = getKeyRoute();\n"
+"  if (route === lastRoute) return;  // nothing changed — skip the fetch\n"
+"  lastRoute = route;\n"
+"  fetch(route).catch(function(){});\n"
 "  setLabel(routeNames[route] || 'STANDBY', route !== '/stop');\n"
 "}\n"
 "\n"
+"// keydown/keyup only update the keys{} state object and button highlights.\n"
+"// They do NOT send fetch requests directly — that is kbPoll's job.\n"
+"// This separation means browser key-repeat events don't spam the Arduino.\n"
 "document.addEventListener('keydown', function(e) {\n"
+"  if (ctrlMode !== 'keyboard') return;  // ignore keys when controller is active\n"
 "  var k = e.key.toLowerCase();\n"
 "  if (!['w','a','s','d'].includes(k)) return;\n"
-"  if (keys[k]) return;\n"
+"  if (keys[k]) return;  // already held — ignore repeat events\n"
 "  keys[k] = true;\n"
 "  if (kMap[k]) document.getElementById(kMap[k]).classList.add('active');\n"
-"  updateMovement();\n"
 "});\n"
 "document.addEventListener('keyup', function(e) {\n"
+"  if (ctrlMode !== 'keyboard') return;\n"
 "  var k = e.key.toLowerCase();\n"
 "  if (!['w','a','s','d'].includes(k)) return;\n"
 "  keys[k] = false;\n"
 "  if (kMap[k]) document.getElementById(kMap[k]).classList.remove('active');\n"
-"  updateMovement();\n"
+"});\n"
+"kbPollHandle = setInterval(kbPoll, 50);  // start keyboard polling immediately on page load\n"
+"</script>\n"
+"<script>\n"
+"// ── GAMEPAD ──\n"
+"// Uses the browser's built-in Gamepad API (navigator.getGamepads) — no drivers needed.\n"
+"// gpPollHandle stores the setInterval handle so polling can be stopped on disconnect.\n"
+"// GP_DZ is the deadzone: stick values below this threshold are treated as zero\n"
+"//   to prevent the rover drifting when the stick is resting near centre.\n"
+"// gpLastL/gpLastR remember the last sent motor values so identical values are skipped.\n"
+"// gpAbort cancels any queued-but-unsent fetch when a new command is ready,\n"
+"//   preventing the request queue from building up during sustained input.\n"
+"var gpPollHandle = null;\n"
+"var GP_DZ = 0.15;\n"
+"var gpLastL = null, gpLastR = null;\n"
+"var gpAbort = null;\n"
+"function gpDZ(v) { return Math.abs(v) < GP_DZ ? 0 : v; }\n"
+"\n"
+"// Runs every 33ms (~30 Hz) when a controller is connected.\n"
+"// Reads trigger and stick values, mixes them into left/right motor speeds,\n"
+"// and sends a fetch only when the values have changed from the last send.\n"
+"function gpPoll() {\n"
+"  if (ctrlMode !== 'controller') return;  // keyboard mode active — do nothing\n"
+"  var gps = navigator.getGamepads ? navigator.getGamepads() : [];\n"
+"  var gp = gps[0];\n"
+"  if (!gp) return;\n"
+"\n"
+"  // Right trigger (buttons[7]) = forward, left trigger (buttons[6]) = reverse.\n"
+"  // .value is 0.0–1.0 for analogue triggers.\n"
+"  var fwd = (gp.buttons[7] && gp.buttons[7].value > 0) ? gp.buttons[7].value : 0;\n"
+"  var rev = (gp.buttons[6] && gp.buttons[6].value > 0) ? gp.buttons[6].value : 0;\n"
+"  var throttle = fwd - rev;  // -1.0 (full reverse) to +1.0 (full forward)\n"
+"\n"
+"  // Right stick X axis (axes[2]) steers left (-1.0) to right (+1.0).\n"
+"  // Deadzone applied so small stick wobble doesn't affect direction.\n"
+"  var steer = gpDZ(gp.axes[2] !== undefined ? gp.axes[2] : 0);\n"
+"\n"
+"  // Tank-style mixing: adding steer to one side and subtracting from the other\n"
+"  // makes the rover arc. Positive steer increases left motor and reduces right.\n"
+"  // Values clamped to -255/+255 and converted to integers for analogWrite.\n"
+"  var L = Math.max(-255, Math.min(255, Math.round((throttle + steer) * 255)));\n"
+"  var R = Math.max(-255, Math.min(255, Math.round((throttle - steer) * 255)));\n"
+"\n"
+"  // Only send if values changed — prevents queue build-up during sustained input.\n"
+"  if (L === gpLastL && R === gpLastR) return;\n"
+"  gpLastL = L; gpLastR = R;\n"
+"\n"
+"  // Cancel any fetch that is queued but not yet sent before issuing the new one.\n"
+"  // This clears the browser's pending request queue immediately on input change.\n"
+"  if (gpAbort) gpAbort.abort();\n"
+"  gpAbort = new AbortController();\n"
+"  fetch('/drive?left=' + L + '&right=' + R, { signal: gpAbort.signal }).catch(function(){});\n"
+"}\n"
+"\n"
+"// Auto-switch to controller mode when a gamepad is plugged in / paired.\n"
+"// Starts the 33ms polling interval.\n"
+"window.addEventListener('gamepadconnected', function(e) {\n"
+"  var el = document.getElementById('gp-status');\n"
+"  el.textContent = 'CONNECTED'; el.className = 'dval dval-green';\n"
+"  addLog('GAMEPAD: ' + e.gamepad.id.substring(0,24), 'ok');\n"
+"  if (!gpPollHandle) gpPollHandle = setInterval(gpPoll, 33);\n"
+"  document.getElementById('ctrl-select').value = 'controller';\n"
+"  setControlMode('controller');  // disables keyboard polling, rover stops first\n"
+"});\n"
+"\n"
+"// On disconnect: stop motors immediately, stop polling, revert to keyboard mode.\n"
+"window.addEventListener('gamepaddisconnected', function() {\n"
+"  var el = document.getElementById('gp-status');\n"
+"  el.textContent = 'DISCONNECTED'; el.className = 'dval dval-red';\n"
+"  fetch('/drive?left=0&right=0').catch(function(){});  // emergency stop\n"
+"  addLog('GAMEPAD DISCONNECTED', 'warn');\n"
+"  clearInterval(gpPollHandle); gpPollHandle = null;\n"
+"  document.getElementById('ctrl-select').value = 'keyboard';\n"
+"  setControlMode('keyboard');  // re-enables keyboard polling\n"
 "});\n"
 "</script>\n"
 "</body>\n"
 "</html>\n";
 
 // ── MOTOR FUNCTIONS ───────────────────────────────────────────────────────────
-void stopMotors()       { analogWrite(leftEn,0); analogWrite(rightEn,0); }
-void moveForward()      { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,HIGH);
+// Tank steering: left and right wheels are driven independently.
+// Forward/backward: both motors run the same direction at the same speed.
+// Pivot turns (keyboard left/right): one motor reverses while the other goes forward —
+//   the rover spins on the spot around its centre.
+// Diagonal moves (keyboard W+A, W+D etc.): both motors go the same direction but the
+//   inside wheel runs at turnSpeed (80) instead of fullSpeed (255), arcing the path.
+
+void stopMotors()       { analogWrite(leftEn,0); analogWrite(rightEn,0); }          // Cut power — coasts to a stop
+
+void moveForward()      { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,HIGH); // Both wheels forward
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void moveBackward()     { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,LOW);
+
+void moveBackward()     { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,LOW);  // Both wheels reverse
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void turnLeft()         { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,HIGH);
+
+void turnLeft()         { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,HIGH); // Left back, right forward → pivot left
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void turnRight()        { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,LOW);
+
+void turnRight()        { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,LOW);  // Left forward, right back → pivot right
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void moveForwardLeft()  { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,HIGH);
+
+void moveForwardLeft()  { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,HIGH); // Forward, left wheel slower → arcs left
                           analogWrite(leftEn,turnSpeed); analogWrite(rightEn,fullSpeed); }
-void moveForwardRight() { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,HIGH);
+
+void moveForwardRight() { digitalWrite(leftDir,HIGH);  digitalWrite(rightDir,HIGH); // Forward, right wheel slower → arcs right
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,turnSpeed); }
-void moveBackLeft()     { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,LOW);
+
+void moveBackLeft()     { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,LOW);  // Reverse, left wheel slower → arcs back-left
                           analogWrite(leftEn,turnSpeed); analogWrite(rightEn,fullSpeed); }
-void moveBackRight()    { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,LOW);
+
+void moveBackRight()    { digitalWrite(leftDir,LOW);   digitalWrite(rightDir,LOW);  // Reverse, right wheel slower → arcs back-right
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,turnSpeed); }
 
 // ── HTTP HANDLERS ─────────────────────────────────────────────────────────────
+// Each handler is called by the web server when the matching URL is requested.
+// The browser's JavaScript sends these requests; the Arduino executes the handler
+// and responds with "OK". The server processes one request at a time.
+
+// Serves the entire webpage (HTML+CSS+JS) stored in the webpage[] string.
+// Sent in 500-byte chunks because the Arduino cannot hold the full string in one
+// send buffer — chunked transfer lets it stream without running out of RAM.
 void handleRoot() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "text/html", "");
@@ -699,6 +866,8 @@ void handleRoot() {
   server.sendContent("");
 }
 
+// Discrete direction handlers — used by keyboard mode.
+// Each simply calls the corresponding motor function and replies "OK".
 void handleForward()      { moveForward();      server.send(200,"text/plain","OK"); }
 void handleBackward()     { moveBackward();     server.send(200,"text/plain","OK"); }
 void handleLeft()         { turnLeft();         server.send(200,"text/plain","OK"); }
@@ -708,6 +877,22 @@ void handleForwardRight() { moveForwardRight(); server.send(200,"text/plain","OK
 void handleBackLeft()     { moveBackLeft();     server.send(200,"text/plain","OK"); }
 void handleBackRight()    { moveBackRight();    server.send(200,"text/plain","OK"); }
 void handleStop()         { stopMotors();       server.send(200,"text/plain","OK"); }
+
+// Analogue motor handler — used by gamepad mode.
+// Called as GET /drive?left=L&right=R where L and R are integers -255 to +255.
+// Sign of each value sets the direction pin (+ = forward, - = reverse).
+// Magnitude sets the PWM speed (abs gives 0–255).
+// This allows smooth variable-speed steering: the gamepad mixes throttle + steering
+// into individual left/right values before sending, giving analogue control.
+void handleDrive() {
+  int left  = constrain(server.arg("left").toInt(),  -255, 255);
+  int right = constrain(server.arg("right").toInt(), -255, 255);
+  digitalWrite(leftDir,  left  >= 0 ? HIGH : LOW);  // direction from sign
+  analogWrite(leftEn,    abs(left));                 // speed from magnitude
+  digitalWrite(rightDir, right >= 0 ? HIGH : LOW);
+  analogWrite(rightEn,   abs(right));
+  server.send(200, "text/plain", "OK");
+}
 
 void handleScanStart() {
   memset(irSamples, 0, sizeof(irSamples));
@@ -720,6 +905,11 @@ void handleScanStart() {
   Serial.println("Scan started");
 }
 
+// Sensor data handler — called every second by the browser's JavaScript polling.
+// Returns all rover state as a single comma-separated plain-text string, e.g.:
+//   "AGE:1.23,IR:547,US:1,MAG:DOWN,TYPE:BASALTOID,CONF:95,MATCHES:3,SCANNING:0,TIMELEFT:0"
+// The browser parses this by splitting on commas then on colons to extract each value.
+// Plain text is used instead of JSON to keep the response size small on the Arduino.
 void handleSensorData() {
   int timeLeft = 0;
   if (scanning) {
@@ -727,30 +917,34 @@ void handleSensorData() {
     timeLeft = max(0, (int)((SCAN_DURATION - elapsed) / 1000) + 1);
   }
   String data = "";
-  data += "AGE:"      + rockAge                          + ",";
-  data += "IR:"       + String(irRate)                   + ",";
-  data += "US:"       + String(ultrasonicDetected ? 1:0) + ",";
-  data += "MAG:"      + magneticDirection                + ",";
-  data += "TYPE:"     + rockType                         + ",";
-  data += "CONF:"     + String(scanConfidence)           + ",";
-  data += "MATCHES:"  + String(scanMatches)              + ",";
-  data += "SCANNING:" + String(scanning ? 1:0)           + ",";
-  data += "TIMELEFT:" + String(timeLeft);
+  data += "AGE:"      + rockAge                          + ",";  // rock age in Ga from Board 1
+  data += "IR:"       + String(irRate)                   + ",";  // averaged IR pulse rate
+  data += "US:"       + String(ultrasonicDetected ? 1:0) + ",";  // 1=object detected, 0=clear
+  data += "MAG:"      + magneticDirection                + ",";  // "UP" or "DOWN"
+  data += "TYPE:"     + rockType                         + ",";  // classified rock name
+  data += "CONF:"     + String(scanConfidence)           + ",";  // confidence % (15/65/95)
+  data += "MATCHES:"  + String(scanMatches)              + ",";  // how many sensor pairs agreed (0-3)
+  data += "SCANNING:" + String(scanning ? 1:0)           + ",";  // 1 while 5-second scan window is open
+  data += "TIMELEFT:" + String(timeLeft);                        // seconds remaining in scan
   server.send(200, "text/plain", data);
 }
 
 void handleNotFound() { server.send(404,"text/plain","404: Not Found"); }
 
 // ── SETUP ─────────────────────────────────────────────────────────────────────
-void readBoardOneData();
+void readBoardOneData();  // forward declaration so loop() can call it
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(9600);                            // USB serial for debug output
+
+  // Configure all four motor control pins as outputs and immediately stop motors
+  // so the rover doesn't move on power-up before WiFi connects
   pinMode(leftEn,OUTPUT);  pinMode(leftDir,OUTPUT);
   pinMode(rightEn,OUTPUT); pinMode(rightDir,OUTPUT);
   stopMotors();
-  Serial1.begin(9600);
-  while (!Serial && millis() < 10000);
+
+  Serial1.begin(9600);                           // UART to receive data from Board 1
+  while (!Serial && millis() < 10000);           // wait up to 10s for USB serial monitor
   Serial.println("EEELunarRover Board 2 starting...");
 
   if (WiFi.status() == WL_NO_SHIELD) {
@@ -765,21 +959,26 @@ void setup() {
   while (WiFi.begin(ssid, pass) != WL_CONNECTED) { delay(500); Serial.print("."); }
   Serial.println("\nWiFi connected!");
 
-  server.on("/",             handleRoot);
-  server.on("/forward",      handleForward);
+  // Register URL routes — each URL is mapped to its handler function.
+  // When the browser makes a GET request to one of these paths, the server
+  // calls the corresponding handler automatically.
+  server.on("/",             handleRoot);         // serves the full webpage
+  server.on("/forward",      handleForward);      // keyboard discrete moves
   server.on("/backward",     handleBackward);
   server.on("/left",         handleLeft);
   server.on("/right",        handleRight);
-  server.on("/forwardleft",  handleForwardLeft);
+  server.on("/forwardleft",  handleForwardLeft);  // keyboard diagonal moves
   server.on("/forwardright", handleForwardRight);
   server.on("/backleft",     handleBackLeft);
   server.on("/backright",    handleBackRight);
   server.on("/stop",         handleStop);
-  server.on("/sensordata",   handleSensorData);
-  server.on("/scan/start",   handleScanStart);
+  server.on("/drive",        handleDrive);        // gamepad analogue control
+  server.on("/sensordata",   handleSensorData);   // browser polls this every second
+  server.on("/scan/start",   handleScanStart);    // triggered by SCAN ROCK button
   server.onNotFound(handleNotFound);
   server.begin();
 
+  // Print the IP address to Serial Monitor so the user knows where to connect
   IPAddress ip = WiFi.localIP();
   Serial.print("Open in browser: http://");
   Serial.print(ip[0]); Serial.print(".");
@@ -789,22 +988,37 @@ void setup() {
 }
 
 // ── MAIN LOOP ─────────────────────────────────────────────────────────────────
+// Runs continuously after setup(). The Arduino is single-threaded — these two
+// calls take turns every iteration. handleClient() processes one pending HTTP
+// request if one is waiting; readBoardOneData() checks for a new line from Board 1.
+// Because only one HTTP request is handled per loop iteration, requests from the
+// browser queue up and are served one at a time.
 void loop() {
-  server.handleClient();
-  readBoardOneData();
+  server.handleClient();   // process one pending browser request (drive command, sensor poll, etc.)
+  readBoardOneData();      // read one line from Board 1 UART if available
 }
 
 // ── BOARD 1 SERIAL PARSER ─────────────────────────────────────────────────────
+// Board 1 sends one line per second over UART in the format:
+//   "AGE:1.23,IR:547,US:1,MAG:DOWN\n"
+// This function reads that line and updates the global sensor variables.
+// During a scan window it also accumulates samples into arrays for averaging.
 void readBoardOneData() {
+  // If the 5-second scan window has elapsed, finalise the result
   if (scanning && millis() - scanStart >= SCAN_DURATION) {
     processScan();
     return;
   }
-  if (!Serial1.available()) return;
+
+  if (!Serial1.available()) return;           // nothing to read yet
+
   String line = Serial1.readStringUntil('\n');
   line.trim();
   if (line.length() == 0) return;
 
+  // Find each field by locating its key string, then extract the substring between
+  // the key end and the next comma. indexOf returns -1 if not found, so the +4/+5
+  // offsets are checked (>=4 / >=5) to guard against malformed lines.
   int a1=line.indexOf("AGE:")+4,  a2=line.indexOf(",IR:");
   int b1=line.indexOf(",IR:")+4,  b2=line.indexOf(",US:");
   int c1=line.indexOf(",US:")+4,  c2=line.indexOf(",MAG:");
@@ -815,8 +1029,10 @@ void readBoardOneData() {
   bool   newUS  = (c1>=4 && c2>c1) ? (line.substring(c1,c2)=="1")  : false;
   String newMag = (d1>=5)           ? line.substring(d1)            : "UNKNOWN";
 
-  rockAge = newAge;
+  rockAge = newAge;  // always update age regardless of scan state
 
+  // During a scan: store up to 20 samples for averaging instead of overwriting live values.
+  // usVotes and magVotes accumulate counts so the majority result is used at processScan().
   if (scanning && sampleCount < 20) {
     irSamples[sampleCount] = newIR;
     usVotes[newUS ? 1 : 0]++;
@@ -828,3 +1044,4 @@ void readBoardOneData() {
                    " MAG=" + newMag);
   }
 }
+
