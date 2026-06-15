@@ -1,7 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// BOARD 1 — WIFI / MOTOR / WEB SERVER BOARD
+// BOARD 1 — WIFI / MOTOR / WEB SERVER BOARD  (+ SENSOR-ARM SERVO SWEEP)
 // Receives sensor CSV from Board 2 via SERCOM1 RX (pin 11) at 9600 baud.
 // Hosts the control webpage and drives the motors.
+//
+// NEW: Clicking SCAN now does a 2-second servo sweep (~45 deg). During the sweep
+//      it records HOW LONG each signal was present, then decides:
+//        - Ultrasound = YES  if detected for >= US_MIN_TIME
+//        - Magnetic   = UP / DOWN, whichever direction was seen longer
+//        - IR         = HIGH(547) / LOW(312), whichever rate was seen longer
 //
 // WIRING SUMMARY
 // ──────────────────────────────────────────────────────────────────────────────
@@ -10,6 +16,10 @@
 //  Motor driver RIGHT EN  → Pin 8
 //  Motor driver RIGHT DIR → Pin 9
 //
+//  Servo VCC (red)        → 5V   on Metro
+//  Servo GND (brown)      → GND  on Metro
+//  Servo PWM (orange)     → Pin 3
+//
 //  Board1 RX ← Board2 TX :  Pin 11 (Board1)  ──── Pin 10 (Board2)
 //  GND                   :  GND   (Board1)   ──── GND   (Board2)  ← IMPORTANT
 //
@@ -17,6 +27,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #include <Arduino.h>
+#include <Servo.h>
 #include "wiring_private.h"
 
 #define USE_WIFI_NINA false
@@ -31,8 +42,8 @@ void SERCOM1_Handler() {
 }
 
 // ── WIFI ──────────────────────────────────────────────────────────────────────
-const char ssid[]      = "EEERover";
-const char pass[]      = "exhibition";
+const char ssid[]      = "Shivang iPhone";
+const char pass[]      = "heythere";
 const int  groupNumber = 15;
 
 // ── INTER-BOARD UART ──────────────────────────────────────────────────────────
@@ -46,34 +57,50 @@ const int leftDir   = 6;
 const int fullSpeed = 255;
 const int turnSpeed = 80;
 
+// ── SERVO (SENSOR ARM) ──────────────────────────────────────────────────────────
+const int SERVO_PIN = 3;       // servo signal wire
+const int SWEEP_MIN = 70;      // sweep start angle (deg) — tune to your arm
+const int SWEEP_MAX = 115;     // sweep end angle   (deg) — tune to your arm
+Servo armServo;
+
 // ── SENSOR DATA (populated by Board 2 messages) ───────────────────────────────
 String rockAge      = "-.-";
-int    irRate       = 0;
+int    irRate       = 0;       
+int    irClass      = 0;       
+int    irConfidence = 0;       
 bool   usDetected   = false;
 String magDirection = "UNKNOWN";
 String rockType     = "SCANNING";
 
 // ── SCAN STATE ────────────────────────────────────────────────────────────────
-bool          scanning    = false;
-unsigned long scanStart   = 0;
-const unsigned long SCAN_DURATION = 5000;
+bool          scanning  = false;
+unsigned long scanStart  = 0;
+const unsigned long SCAN_DURATION = 2000;   // 2-second sweep
 
-int irSamples[25];
-int usVotes[2];
-int magVotes[2];
-int sampleCount    = 0;
-int irAccumulator  = 0;
+// How long (ms) a signal must be seen DURING the sweep to count.
+// These are the main things to tune after watching the serial output.
+const unsigned long US_MIN_TIME  = 500;     // ultrasound detected this long -> YES
+const unsigned long MAG_MIN_TIME = 300;     // a field direction seen this long -> trust it
+const unsigned long IR_MIN_TIME  = 300;     // a valid IR rate seen this long  -> trust it
+
+// Accumulated time (ms) each signal was present during the sweep
+unsigned long usTime       = 0;
+unsigned long magUpTime    = 0;
+unsigned long magDownTime  = 0;
+unsigned long irHighTime   = 0;   // 547 s^-1
+unsigned long irLowTime    = 0;   // 312 s^-1
+unsigned long lastSampleMs = 0;   // used to measure time between loops
+
 int scanConfidence = 0;
 int scanMatches    = 0;
 
 // ── ROCK CLASSIFICATION ───────────────────────────────────────────────────────
-String classifyRock(int ir, bool us, bool magUp) {
-  bool irHigh = (ir >= 430);
+String classifyRock(bool irHigh, bool us, bool magUp) {
   if ( irHigh && !magUp &&  us) return "BASALTOID";
   if (!irHigh && !magUp && !us) return "GRAVION";
   if (!irHigh &&  magUp &&  us) return "REGOLIX";
   if ( irHigh &&  magUp && !us) return "LUNARITE";
-  // Fallback: US + MAG only
+  // Fallback: US + MAG alone uniquely identify all four types
   if ( us && !magUp) return "BASALTOID";
   if ( us &&  magUp) return "REGOLIX";
   if (!us && !magUp) return "GRAVION";
@@ -81,21 +108,60 @@ String classifyRock(int ir, bool us, bool magUp) {
 }
 
 void processScan() {
-  if (sampleCount == 0) { rockType = "NO DATA"; scanning = false; return; }
-  bool finalUs  = (usVotes[1]  >= usVotes[0]);
-  bool finalMag = (magVotes[1] >= magVotes[0]);
-  int  avgIr    = irAccumulator / sampleCount;
-  magDirection  = finalMag ? "UP" : "DOWN";
-  usDetected    = finalUs;
-  irRate        = avgIr;
-  rockType      = classifyRock(avgIr, finalUs, finalMag);
-  scanMatches   = 3;
-  scanConfidence= 85;
-  scanning      = false;
+  armServo.write(SWEEP_MIN);   // return the arm to the start position
+
+  // ── Resolve each sensor from the accumulated time ──────────────────
+  bool finalUs = (usTime >= US_MIN_TIME);
+
+  unsigned long magTotal  = magUpTime + magDownTime;
+  bool          finalMagUp = (magUpTime >= magDownTime);
+
+  unsigned long irTotal   = irHighTime + irLowTime;
+  bool          finalHigh = (irHighTime >= irLowTime);
+
+  // If basically nothing was picked up, bail out
+  if (!finalUs && magTotal < MAG_MIN_TIME && irTotal < IR_MIN_TIME) {
+    rockType = "NO DATA";
+    scanning = false;
+    Serial.println("Scan complete: NO DATA");
+    return;
+  }
+
+  magDirection = finalMagUp ? "UP" : "DOWN";
+  usDetected   = finalUs;
+  rockType     = classifyRock(finalHigh, finalUs, finalMagUp);
+
+  // ── Confidence per sensor (0..1) ───────────────────────────────────
+  // US: how decisively the detection time cleared / missed the threshold
+  float usConf = (float)abs((long)usTime - (long)US_MIN_TIME) / (float)US_MIN_TIME;
+  if (usConf > 1.0) usConf = 1.0;
+
+  // MAG: how one-sided the up-vs-down time was (unanimous = 1, even split = 0)
+  float magConf = 0;
+  if (magTotal > 0)
+    magConf = ((float)max(magUpTime, magDownTime) / magTotal - 0.5) * 2.0;
+
+  // IR: how one-sided the high-vs-low time was
+  float irConf = 0;
+  if (irTotal > 0)
+    irConf = ((float)max(irHighTime, irLowTime) / irTotal - 0.5) * 2.0;
+
+  scanConfidence = (int)round(((usConf + magConf + irConf) / 3.0) * 100.0);
+
+  scanMatches = 0;
+  if (usConf  >= 0.8) scanMatches++;
+  if (magConf >= 0.8) scanMatches++;
+  if (irConf  >= 0.8) scanMatches++;
+
+  scanning = false;
   Serial.println("Scan complete: " + rockType +
-                 " (IR=" + String(avgIr) +
-                 " US="  + String(finalUs) +
-                 " MAG=" + magDirection + ")");
+                 " (conf=" + String(scanConfidence) + "% " +
+                 String(scanMatches) + "/3)");
+  Serial.println("  usTime="  + String(usTime) +
+                 " magUp="    + String(magUpTime) +
+                 " magDown="  + String(magDownTime) +
+                 " irHigh="   + String(irHighTime) +
+                 " irLow="    + String(irLowTime));
 }
 
 // ── PARSE CSV FROM BOARD 2 ────────────────────────────────────────────────────
@@ -111,10 +177,12 @@ void parseBoardTwoMessage(String line) {
     if (colon >= 0) {
       String key = token.substring(0, colon);
       String val = token.substring(colon + 1);
-      if      (key == "AGE") rockAge      = val;
-      else if (key == "IR")  irRate       = val.toInt();
-      else if (key == "US")  usDetected   = (val == "1");
-      else if (key == "MAG") magDirection = val;
+      if      (key == "AGE")  rockAge      = val;
+      else if (key == "IR")   irRate       = val.toInt();
+      else if (key == "IRC")  irClass      = val.toInt();
+      else if (key == "IRCO") irConfidence = val.toInt();
+      else if (key == "US")   usDetected   = (val == "1");
+      else if (key == "MAG")  magDirection = val;
     }
     pos = comma + 1;
   }
@@ -336,7 +404,7 @@ const char webpage[] =
 "          <div class=\"bar-track\"><div class=\"bar-fill\" id=\"spec-bar\" style=\"width:0%\"></div></div>\n"
 "        </div>\n"
 "        <div style=\"margin-top:8px;\">\n"
-"          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;\"><span>SENSORS AGREE</span><span id=\"conf-pct\" style=\"color:var(--accent);\">0/4</span></div>\n"
+"          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;\"><span>SENSORS AGREE</span><span id=\"conf-pct\" style=\"color:var(--accent);\">0/3</span></div>\n"
 "          <div class=\"bar-track\"><div class=\"bar-fill\" id=\"conf-bar\" style=\"width:0%\"></div></div>\n"
 "        </div>\n"
 "      </div>\n"
@@ -388,7 +456,7 @@ const char webpage[] =
 "    <span><span class=\"sdot sdot-blue\"></span>BOARD2 SERCOM 9600</span>\n"
 "    <span><span class=\"sdot sdot-green\"></span>RADIO 600 BAUD</span>\n"
 "    <span><span class=\"sdot sdot-green\"></span>DRIVE: ARMED</span>\n"
-"    <span>v2.1.0 // DUAL-BOARD</span>\n"
+"    <span>v2.2.0 // SERVO-SWEEP</span>\n"
 "  </footer>\n"
 "</div>\n"
 "\n"
@@ -460,18 +528,18 @@ const char webpage[] =
 "      var btn=document.getElementById('btn-scan');\n"
 "      var sts=document.getElementById('scan-status');\n"
 "      if(scanning){\n"
-"        btn.textContent='SCANNING...'; btn.disabled=true;\n"
+"        btn.textContent='SWEEPING...'; btn.disabled=true;\n"
 "        sts.textContent=timeLeft+'s REMAINING'; sts.style.color='var(--yellow)';\n"
 "      } else {\n"
 "        btn.textContent='SCAN ROCK'; btn.disabled=false;\n"
-"        sts.textContent=conf>0?'LAST: '+conf+'% — '+matches+'/4 SENSORS':'';\n"
+"        sts.textContent=conf>0?'LAST: '+conf+'% — '+matches+'/3 SENSORS':'';\n"
 "        sts.style.color='var(--dim)';\n"
 "      }\n"
 "      if(!scanning&&conf>0){\n"
 "        document.getElementById('spec-pct').textContent=conf+'%';\n"
 "        document.getElementById('spec-bar').style.width=conf+'%';\n"
-"        document.getElementById('conf-pct').textContent=matches+'/4';\n"
-"        document.getElementById('conf-bar').style.width=(matches/4*100)+'%';\n"
+"        document.getElementById('conf-pct').textContent=matches+'/3';\n"
+"        document.getElementById('conf-bar').style.width=(matches/3*100)+'%';\n"
 "      }\n"
 "      var rt=document.getElementById('rtype');\n"
 "      var displayType=scanning?'SCANNING':type;\n"
@@ -497,7 +565,7 @@ const char webpage[] =
 "\n"
 "function startScan(){\n"
 "  fetch('/scan/start')\n"
-"    .then(function(){ addLog('SCAN INITIATED — 5s window','ok'); })\n"
+"    .then(function(){ addLog('SWEEP INITIATED — 2s window','ok'); })\n"
 "    .catch(function(){ addLog('SCAN START FAILED','err'); });\n"
 "}\n"
 "\n"
@@ -580,18 +648,21 @@ void handleBackRight()    { moveBackRight();    server.send(200,"text/plain","OK
 void handleStop()         { stopMotors();       server.send(200,"text/plain","OK"); }
 
 void handleScanStart() {
-  memset(irSamples, 0, sizeof(irSamples));
-  memset(usVotes,   0, sizeof(usVotes));
-  memset(magVotes,  0, sizeof(magVotes));
-  sampleCount    = 0;
-  irAccumulator  = 0;
+  // Reset all sweep accumulators
+  usTime       = 0;
+  magUpTime    = 0;
+  magDownTime  = 0;
+  irHighTime   = 0;
+  irLowTime    = 0;
   rockType       = "SCANNING";
   scanConfidence = 0;
   scanMatches    = 0;
   scanning       = true;
   scanStart      = millis();
+  lastSampleMs   = millis();
+  armServo.write(SWEEP_MIN);   // start every sweep from the same place
   server.send(200, "text/plain", "OK");
-  Serial.println("Scan started");
+  Serial.println("Scan started (2s sweep)");
 }
 
 void handleSensorData() {
@@ -649,6 +720,10 @@ void setup() {
   pinMode(rightEn, OUTPUT); pinMode(rightDir, OUTPUT);
   stopMotors();
 
+  // Sensor-arm servo
+  armServo.attach(SERVO_PIN);
+  armServo.write(SWEEP_MIN);
+
   if (WiFi.status() == WL_NO_SHIELD) {
     Serial.println("ERROR: WiFi shield not found");
     while (true);
@@ -687,21 +762,27 @@ void loop() {
   readBoardTwo();
 
   if (scanning) {
-    if (millis() - scanStart >= SCAN_DURATION) {
+    unsigned long now     = millis();
+    unsigned long elapsed = now - scanStart;
+
+    if (elapsed >= SCAN_DURATION) {
       processScan();
     } else {
-      static unsigned long lastSample = 0;
-      if (millis() - lastSample >= 200 && sampleCount < 25) {
-        lastSample = millis();
-        usVotes[usDetected ? 1 : 0]++;
-        magVotes[magDirection == "UP" ? 1 : 0]++;
-        irAccumulator += irRate;
-        sampleCount++;
-        Serial.println("Sample " + String(sampleCount) +
-                       " IR="  + String(irRate) +
-                       " US="  + String(usDetected) +
-                       " MAG=" + magDirection);
-      }
+      // Move the arm smoothly across the sweep, timed to the 2s scan window
+      int angle = SWEEP_MIN + (int)((long)(SWEEP_MAX - SWEEP_MIN) * elapsed / SCAN_DURATION);
+      armServo.write(angle);
+
+      // Add the time since the last loop into whichever bucket matches the
+      // CURRENT sensor reading. Over the sweep these totals tell us how long
+      // each signal was actually present.
+      unsigned long dt = now - lastSampleMs;
+      lastSampleMs = now;
+
+      if (usDetected)                   usTime      += dt;
+      if      (magDirection == "UP")    magUpTime   += dt;
+      else if (magDirection == "DOWN")  magDownTime += dt;
+      if      (irClass == 547)          irHighTime  += dt;
+      else if (irClass == 312)          irLowTime   += dt;
     }
   }
 }

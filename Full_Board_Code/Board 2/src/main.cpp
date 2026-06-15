@@ -151,6 +151,8 @@ void setup() {
   Serial1.begin(RADIO_BAUD);
 
   Serial2.begin(BOARD_LINK_BAUD);
+  Serial.println("Radio started");
+  
   pinPeripheral(10, PIO_SERCOM);
   pinPeripheral(11, PIO_SERCOM);
 
