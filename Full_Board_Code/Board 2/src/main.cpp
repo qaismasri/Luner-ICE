@@ -123,7 +123,7 @@ void updateIR() {
 }
 
 // ── ULTRASONIC ────────────────────────────────────────────────────────────────
-const int US_PIN            = 3;
+const int US_PIN            = 13;
 const int US_VOTE_NEEDED    = 5;
 const int US_CHECK_INTERVAL = 20;
 int           usVoteCount   = 0;
@@ -135,6 +135,7 @@ DFRobot_BMM350_I2C bmm350(&Wire, 0x14);
 const int     MAG_CHECK_INTERVAL = 200;
 String        magDirection       = "UNKNOWN";
 unsigned long lastMagCheck       = 0;
+bool          magAvailable       = false;
 
 // ── OUTGOING DATA ─────────────────────────────────────────────────────────────
 const int     SEND_INTERVAL = 1000;
@@ -162,13 +163,14 @@ void setup() {
   pinMode(US_PIN, INPUT);
 
   Serial.println("Initialising BMM350...");
-  while (bmm350.begin() != 0) {
-    Serial.println("BMM350 not found — check I2C wiring!");
-    delay(1000);
+  if (bmm350.begin() == 0) {
+    bmm350.setOperationMode(eBmm350NormalMode);
+    bmm350.setMeasurementXYZ();
+    magAvailable = true;
+    Serial.println("BMM350 ready.");
+  } else {
+    Serial.println("BMM350 not found — magnetic sensor disabled, continuing without it.");
   }
-  Serial.println("BMM350 ready.");
-  bmm350.setOperationMode(eBmm350NormalMode);
-  bmm350.setMeasurementXYZ();
 
   // Start first IR window immediately
   irWindowStart = millis();
@@ -229,6 +231,7 @@ void updateUltrasonic() {
 }
 
 void updateMagnetic() {
+  if (!magAvailable) return;
   unsigned long now = millis();
   if (now - lastMagCheck >= MAG_CHECK_INTERVAL) {
     lastMagCheck = now;
