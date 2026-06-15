@@ -1,7 +1,22 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// BOARD 1 — WIFI / MOTOR / WEB SERVER BOARD
+// BOARD 1 — WIFI / MOTOR / WEB SERVER BOARD  (+ SENSOR-ARM SERVO SWEEP)
 // Receives sensor CSV from Board 2 via SERCOM1 RX (pin 11) at 9600 baud.
 // Hosts the control webpage and drives the motors.
+//
+// v2.3 CHANGES (this version)
+//   - MAGNETIC: website now shows UNKNOWN when there is no magnet (was defaulting
+//     to DOWN). Live reading and the frozen scan reading both handle UNKNOWN.
+//   - ROCK CATALOG: bottom-right panel is now a saved-rock list (up to 8). A
+//     "SAVE TO CATALOG" button stores the last scanned rock. Saved in the browser
+//     (localStorage) so it survives a page refresh. CLR button wipes it.
+//   - SCAN READINGS: the classification panel now shows the exact readings the
+//     classifier used for the last scan (US / MAG / IR / age). These are FROZEN
+//     in processScan() so the 1-second live updates from Board 2 don't overwrite
+//     them.
+//   - EVENT LOG: now reports "SCAN RETURNED NO DATA", and is scrollable so you
+//     can scroll back through earlier events.
+//   - LAYOUT: classification panel is taller (takes the bottom half of the middle
+//     column, cutting into the rotating rover graphic).
 //
 // WIRING SUMMARY
 // ──────────────────────────────────────────────────────────────────────────────
@@ -10,6 +25,10 @@
 //  Motor driver RIGHT EN  → Pin 8
 //  Motor driver RIGHT DIR → Pin 9
 //
+//  Servo VCC (red)        → 5V   on Metro
+//  Servo GND (brown)      → GND  on Metro
+//  Servo PWM (orange)     → Pin 3
+//
 //  Board1 RX ← Board2 TX :  Pin 11 (Board1)  ──── Pin 10 (Board2)
 //  GND                   :  GND   (Board1)   ──── GND   (Board2)  ← IMPORTANT
 //
@@ -17,6 +36,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #include <Arduino.h>
+#include <Servo.h>
 #include "wiring_private.h"
 
 #define USE_WIFI_NINA false
@@ -31,8 +51,8 @@ void SERCOM1_Handler() {
 }
 
 // ── WIFI ──────────────────────────────────────────────────────────────────────
-const char ssid[]      = "EEERover";
-const char pass[]      = "exhibition";
+const char ssid[]      = "Shivang iPhone";
+const char pass[]      = "heythere";
 const int  groupNumber = 15;
 
 // ── INTER-BOARD UART ──────────────────────────────────────────────────────────
@@ -46,34 +66,61 @@ const int leftDir   = 6;
 const int fullSpeed = 255;
 const int turnSpeed = 80;
 
+// ── SERVO (SENSOR ARM) ──────────────────────────────────────────────────────────
+const int SERVO_PIN = 3;       // servo signal wire
+const int SWEEP_MIN = 70;      // sweep start angle (deg) — tune to your arm
+const int SWEEP_MAX = 115;     // sweep end angle   (deg) — tune to your arm
+Servo armServo;
+
 // ── SENSOR DATA (populated by Board 2 messages) ───────────────────────────────
 String rockAge      = "-.-";
 int    irRate       = 0;
+int    irClass      = 0;
+int    irConfidence = 0;
 bool   usDetected   = false;
 String magDirection = "UNKNOWN";
 String rockType     = "SCANNING";
 
 // ── SCAN STATE ────────────────────────────────────────────────────────────────
-bool          scanning    = false;
-unsigned long scanStart   = 0;
-const unsigned long SCAN_DURATION = 5000;
+bool          scanning  = false;
+unsigned long scanStart  = 0;
+const unsigned long SCAN_DURATION = 2500;   // 2-second sweep
 
-int irSamples[25];
-int usVotes[2];
-int magVotes[2];
-int sampleCount    = 0;
-int irAccumulator  = 0;
+// How long (ms) a signal must be seen DURING the sweep to count.
+// These are the main things to tune after watching the serial output.
+const unsigned long US_MIN_TIME  = 500;     // ultrasound detected this long -> YES
+const unsigned long MAG_MIN_TIME = 300;     // a field direction seen this long -> trust it
+const unsigned long IR_MIN_TIME  = 300;     // a valid IR rate seen this long  -> trust it
+
+// Accumulated time (ms) each signal was present during the sweep
+unsigned long usTime       = 0;
+unsigned long magUpTime    = 0;
+unsigned long magDownTime  = 0;
+unsigned long irHighTime   = 0;   // 547 s^-1
+unsigned long irLowTime    = 0;   // 312 s^-1
+unsigned long lastSampleMs = 0;   // used to measure time between loops
+
 int scanConfidence = 0;
 int scanMatches    = 0;
 
+// ── FROZEN SCAN RESULT ─────────────────────────────────────────────────────────
+// These are the exact readings the classifier used for the LAST scan. They are
+// snapshotted in processScan() and are NOT touched by the 1-second live updates
+// coming from Board 2, so the webpage can keep displaying what the scan measured.
+bool   scanHasResult  = false;     // true once a valid scan has produced a result
+bool   scanResUs      = false;     // ultrasound present?
+String scanResMag     = "UNKNOWN"; // "UP" / "DOWN"
+int    scanResIrRate  = 0;         // averaged IR rate at scan time (s^-1)
+int    scanResIrClass = 0;         // 547 (HIGH) or 312 (LOW)
+String scanResAge     = "-.-";     // radio age at scan time
+
 // ── ROCK CLASSIFICATION ───────────────────────────────────────────────────────
-String classifyRock(int ir, bool us, bool magUp) {
-  bool irHigh = (ir >= 430);
+String classifyRock(bool irHigh, bool us, bool magUp) {
   if ( irHigh && !magUp &&  us) return "BASALTOID";
   if (!irHigh && !magUp && !us) return "GRAVION";
   if (!irHigh &&  magUp &&  us) return "REGOLIX";
   if ( irHigh &&  magUp && !us) return "LUNARITE";
-  // Fallback: US + MAG only
+  // Fallback: US + MAG alone uniquely identify all four types
   if ( us && !magUp) return "BASALTOID";
   if ( us &&  magUp) return "REGOLIX";
   if (!us && !magUp) return "GRAVION";
@@ -81,21 +128,69 @@ String classifyRock(int ir, bool us, bool magUp) {
 }
 
 void processScan() {
-  if (sampleCount == 0) { rockType = "NO DATA"; scanning = false; return; }
-  bool finalUs  = (usVotes[1]  >= usVotes[0]);
-  bool finalMag = (magVotes[1] >= magVotes[0]);
-  int  avgIr    = irAccumulator / sampleCount;
-  magDirection  = finalMag ? "UP" : "DOWN";
-  usDetected    = finalUs;
-  irRate        = avgIr;
-  rockType      = classifyRock(avgIr, finalUs, finalMag);
-  scanMatches   = 3;
-  scanConfidence= 85;
-  scanning      = false;
+  armServo.write(SWEEP_MIN);   // return the arm to the start position
+
+  // ── Resolve each sensor from the accumulated time ──────────────────
+  bool finalUs = (usTime >= US_MIN_TIME);
+
+  unsigned long magTotal  = magUpTime + magDownTime;
+  bool          finalMagUp = (magUpTime >= magDownTime);
+
+  unsigned long irTotal   = irHighTime + irLowTime;
+  bool          finalHigh = (irHighTime >= irLowTime);
+
+  // If basically nothing was picked up, bail out
+  if (!finalUs && magTotal < MAG_MIN_TIME && irTotal < IR_MIN_TIME) {
+    rockType      = "NO DATA";
+    scanHasResult = false;          // nothing to show in the readings panel
+    scanning      = false;
+    Serial.println("Scan complete: NO DATA");
+    return;
+  }
+
+  magDirection = finalMagUp ? "UP" : "DOWN";
+  usDetected   = finalUs;
+  rockType     = classifyRock(finalHigh, finalUs, finalMagUp);
+
+  // ── Freeze the readings that produced this classification ──────────
+  scanResUs      = finalUs;
+  scanResMag     = magDirection;
+  scanResIrClass = finalHigh ? 547 : 312;
+  scanResIrRate  = irRate;            // most recent averaged rate from Board 2
+  scanResAge     = rockAge;
+  scanHasResult  = true;
+
+  // ── Confidence per sensor (0..1) ───────────────────────────────────
+  // US: how decisively the detection time cleared / missed the threshold
+  float usConf = (float)abs((long)usTime - (long)US_MIN_TIME) / (float)US_MIN_TIME;
+  if (usConf > 1.0) usConf = 1.0;
+
+  // MAG: how one-sided the up-vs-down time was (unanimous = 1, even split = 0)
+  float magConf = 0;
+  if (magTotal > 0)
+    magConf = ((float)max(magUpTime, magDownTime) / magTotal - 0.5) * 2.0;
+
+  // IR: how one-sided the high-vs-low time was
+  float irConf = 0;
+  if (irTotal > 0)
+    irConf = ((float)max(irHighTime, irLowTime) / irTotal - 0.5) * 2.0;
+
+  scanConfidence = (int)round(((usConf + magConf + irConf) / 3.0) * 100.0);
+
+  scanMatches = 0;
+  if (usConf  >= 0.8) scanMatches++;
+  if (magConf >= 0.8) scanMatches++;
+  if (irConf  >= 0.8) scanMatches++;
+
+  scanning = false;
   Serial.println("Scan complete: " + rockType +
-                 " (IR=" + String(avgIr) +
-                 " US="  + String(finalUs) +
-                 " MAG=" + magDirection + ")");
+                 " (conf=" + String(scanConfidence) + "% " +
+                 String(scanMatches) + "/3)");
+  Serial.println("  usTime="  + String(usTime) +
+                 " magUp="    + String(magUpTime) +
+                 " magDown="  + String(magDownTime) +
+                 " irHigh="   + String(irHighTime) +
+                 " irLow="    + String(irLowTime));
 }
 
 // ── PARSE CSV FROM BOARD 2 ────────────────────────────────────────────────────
@@ -111,10 +206,12 @@ void parseBoardTwoMessage(String line) {
     if (colon >= 0) {
       String key = token.substring(0, colon);
       String val = token.substring(colon + 1);
-      if      (key == "AGE") rockAge      = val;
-      else if (key == "IR")  irRate       = val.toInt();
-      else if (key == "US")  usDetected   = (val == "1");
-      else if (key == "MAG") magDirection = val;
+      if      (key == "AGE")  rockAge      = val;
+      else if (key == "IR")   irRate       = val.toInt();
+      else if (key == "IRC")  irClass      = val.toInt();
+      else if (key == "IRCO") irConfidence = val.toInt();
+      else if (key == "US")   usDetected   = (val == "1");
+      else if (key == "MAG")  magDirection = val;
     }
     pos = comma + 1;
   }
@@ -127,7 +224,7 @@ const char webpage[] =
 "<head>\n"
 "  <meta charset=\"UTF-8\">\n"
 "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
-"  <title>LUNER-ICE // Mission Control</title>\n"
+"  <title>LUNAR-ICE // Mission Control</title>\n"
 "  <link href=\"https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap\" rel=\"stylesheet\">\n"
 "  <style>\n"
 "    :root {\n"
@@ -193,7 +290,17 @@ const char webpage[] =
 "    .scan-btn::after  { content: ''; position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px; border-bottom: 1px solid var(--accent); border-right: 1px solid var(--accent); }\n"
 "    .scan-btn:hover:not(:disabled) { background: rgba(0,80,150,0.45); border-color: var(--accent); color: #fff; }\n"
 "    .scan-btn:disabled { color: var(--yellow); border-color: var(--yellow); cursor: not-allowed; }\n"
-"    .rover-vp { background: #010a1c; border: 1px solid var(--border-hi); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 300px; flex: 1; }\n"
+"    #btn-save { margin-top: 8px; }\n"
+"    #btn-save:disabled { color: var(--dim); border-color: var(--border); cursor: not-allowed; }\n"
+"    .cat-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid rgba(10,53,80,0.35); font-size: 11px; }\n"
+"    .cat-item:last-child { border-bottom: none; }\n"
+"    .cat-num  { color: var(--dim); width: 16px; flex-shrink: 0; }\n"
+"    .cat-type { color: var(--accent); flex: 1; letter-spacing: 1px; }\n"
+"    .cat-age  { color: var(--text); }\n"
+"    .cat-empty { color: var(--dim); font-size: 9px; letter-spacing: 2px; text-align: center; padding-top: 14px; }\n"
+"    .clr-btn { cursor: pointer; color: var(--dim); border: 1px solid var(--border); padding: 1px 6px; font-size: 8px; letter-spacing: 1px; }\n"
+"    .clr-btn:hover { color: var(--red); border-color: var(--red); }\n"
+"    .rover-vp { background: #010a1c; border: 1px solid var(--border-hi); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 180px; flex: 1; }\n"
 "    .rover-vp-grid { position: absolute; inset: 0; background: repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(0,150,200,0.04) 28px,rgba(0,150,200,0.04) 29px), repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(0,150,200,0.04) 28px,rgba(0,150,200,0.04) 29px); pointer-events: none; }\n"
 "    .scan-line { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(0,212,255,0.45) 30%, rgba(0,212,255,0.45) 70%, transparent); animation: vscan 4s linear infinite; pointer-events: none; z-index: 2; }\n"
 "    .vp-label { position: absolute; font-size: 9px; letter-spacing: 2px; color: var(--dim); }\n"
@@ -219,7 +326,7 @@ const char webpage[] =
 "<div class=\"app\">\n"
 "  <header class=\"hdr\">\n"
 "    <div>\n"
-"      <div class=\"hdr-logo\">LUNER&#183;ICE</div>\n"
+"      <div class=\"hdr-logo\">LUNAR&#183;ICE</div>\n"
 "      <div class=\"hdr-sub\">MISSION CONTROL // GRP-15</div>\n"
 "    </div>\n"
 "    <div style=\"text-align:center;\">\n"
@@ -270,10 +377,10 @@ const char webpage[] =
 "        <div class=\"drow\"><span class=\"dlabel\">UPTIME</span><span class=\"dval\" id=\"uptime\">00:00:00</span></div>\n"
 "        <div class=\"drow\"><span class=\"dlabel\">PACKETS RX</span><span class=\"dval\" id=\"pkts\">0</span></div>\n"
 "      </div>\n"
-"      <div class=\"panel\" style=\"flex:1;min-height:0;overflow:hidden;\">\n"
+"      <div class=\"panel\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
 "        <div class=\"ptitle\">EVENT LOG <div class=\"ptitle-dot\"></div></div>\n"
-"        <div id=\"log-list\">\n"
+"        <div id=\"log-list\" style=\"flex:1;min-height:0;overflow-y:auto;\">\n"
 "          <div class=\"log-item\"><span class=\"log-t\">00:00:01</span><span class=\"log-ok\">[OK] </span>SYSTEM INIT</div>\n"
 "          <div class=\"log-item\"><span class=\"log-t\">00:00:02</span><span class=\"log-ok\">[OK] </span>WIFI CONNECTED</div>\n"
 "          <div class=\"log-item\"><span class=\"log-t\">00:00:03</span><span class=\"log-ok\">[OK] </span>WEB SERVER STARTED</div>\n"
@@ -291,12 +398,12 @@ const char webpage[] =
 "          <div class=\"vp-label\" style=\"top:10px;left:12px;\">RV-CAM-01</div>\n"
 "          <div class=\"vp-label\" style=\"top:10px;right:12px;\">BLUEPRINT VIEW</div>\n"
 "          <div id=\"rover-svg-wrap\" style=\"position:relative;z-index:3;text-align:center;\">\n"
-"            <div style=\"position:relative;width:240px;height:240px;margin:0 auto;\">\n"
-"              <svg width=\"240\" height=\"240\" viewBox=\"0 0 240 240\"\n"
+"            <div style=\"position:relative;width:200px;height:200px;margin:0 auto;\">\n"
+"              <svg width=\"200\" height=\"200\" viewBox=\"0 0 240 240\"\n"
 "                style=\"position:absolute;top:0;left:0;animation:spin-rev 22s linear infinite;\">\n"
 "                <circle cx=\"120\" cy=\"120\" r=\"116\" stroke=\"#00d4ff\" stroke-width=\"0.5\" fill=\"none\" stroke-dasharray=\"4 9\" opacity=\"0.22\"/>\n"
 "              </svg>\n"
-"              <svg width=\"240\" height=\"240\" viewBox=\"0 0 240 240\"\n"
+"              <svg width=\"200\" height=\"200\" viewBox=\"0 0 240 240\"\n"
 "                style=\"position:absolute;top:0;left:0;animation:spin-slow 50s linear infinite;\">\n"
 "                <style>.rv{stroke:#00d4ff;fill:none;stroke-width:0.7;opacity:0.4;}.rv2{stroke:#00d4ff;fill:none;stroke-width:1.1;opacity:0.72;}.rvf{stroke:#00d4ff;fill:rgba(0,212,255,0.05);stroke-width:0.9;opacity:0.65;}</style>\n"
 "                <circle class=\"rv2\" cx=\"120\" cy=\"120\" r=\"107\"/>\n"
@@ -314,11 +421,11 @@ const char webpage[] =
 "                <line class=\"rv\" x1=\"92\" y1=\"120\" x2=\"148\" y2=\"120\"/>\n"
 "              </svg>\n"
 "            </div>\n"
-"            <div style=\"font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:var(--accent);opacity:0.7;margin-top:8px;\">LUNER-ICE ROVER Mk.I</div>\n"
+"            <div style=\"font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:var(--accent);opacity:0.7;margin-top:8px;\">LUNAR-ICE ROVER Mk.I</div>\n"
 "          </div>\n"
 "        </div>\n"
 "      </div>\n"
-"      <div class=\"panel\">\n"
+"      <div class=\"panel\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto;\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
 "        <div class=\"ptitle\">ROCK CLASSIFICATION <div class=\"ptitle-dot\"></div></div>\n"
 "        <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px;\">\n"
@@ -336,8 +443,15 @@ const char webpage[] =
 "          <div class=\"bar-track\"><div class=\"bar-fill\" id=\"spec-bar\" style=\"width:0%\"></div></div>\n"
 "        </div>\n"
 "        <div style=\"margin-top:8px;\">\n"
-"          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;\"><span>SENSORS AGREE</span><span id=\"conf-pct\" style=\"color:var(--accent);\">0/4</span></div>\n"
+"          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;\"><span>SENSORS AGREE</span><span id=\"conf-pct\" style=\"color:var(--accent);\">0/3</span></div>\n"
 "          <div class=\"bar-track\"><div class=\"bar-fill\" id=\"conf-bar\" style=\"width:0%\"></div></div>\n"
+"        </div>\n"
+"        <div style=\"margin-top:16px;padding-top:12px;border-top:1px solid var(--border);\">\n"
+"          <div style=\"font-size:9px;letter-spacing:3px;color:var(--dim);margin-bottom:8px;\">SCAN READINGS (USED TO CLASSIFY)</div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">ULTRASONIC 40kHz</span><span class=\"dval\" id=\"sr-us\">&#8212;</span></div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">MAGNETIC FIELD</span><span class=\"dval\" id=\"sr-mag\">&#8212;</span></div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">IR PULSE RATE</span><span class=\"dval\" id=\"sr-ir\">&#8212;</span></div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">RADIO AGE</span><span class=\"dval\" id=\"sr-age\">&#8212;</span></div>\n"
 "        </div>\n"
 "      </div>\n"
 "    </div>\n"
@@ -361,6 +475,7 @@ const char webpage[] =
 "        <div id=\"cmdlabel\" style=\"font-size:10px;letter-spacing:4px;color:var(--dim);text-align:center;margin-top:13px;min-height:16px;\">STANDBY</div>\n"
 "        <button id=\"btn-scan\" class=\"scan-btn\" onclick=\"startScan()\">SCAN ROCK</button>\n"
 "        <div id=\"scan-status\" style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-top:6px;min-height:13px;\"></div>\n"
+"        <button id=\"btn-save\" class=\"scan-btn\" onclick=\"saveRock()\" disabled>SAVE TO CATALOG</button>\n"
 "      </div>\n"
 "      <div class=\"panel\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
@@ -370,15 +485,10 @@ const char webpage[] =
 "        <div class=\"drow\"><span class=\"dlabel\">B2 BAUD</span><span class=\"dval\">9600</span></div>\n"
 "        <div class=\"drow\"><span class=\"dlabel\">RADIO BAUD</span><span class=\"dval\">600</span></div>\n"
 "      </div>\n"
-"      <div class=\"panel\" style=\"flex:1;\">\n"
+"      <div class=\"panel\" style=\"flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
-"        <div class=\"ptitle\">MISSION INFO <div class=\"ptitle-dot\"></div></div>\n"
-"        <div class=\"drow\"><span class=\"dlabel\">MISSION</span><span class=\"dval\">LUNER-ICE</span></div>\n"
-"        <div class=\"drow\"><span class=\"dlabel\">GROUP</span><span class=\"dval\">GRP-15</span></div>\n"
-"        <div class=\"drow\"><span class=\"dlabel\">DRIVE MODE</span><span class=\"dval dval-green\">ARMED</span></div>\n"
-"        <div class=\"drow\"><span class=\"dlabel\">TERRAIN</span><span class=\"dval\">LUNAR SIM</span></div>\n"
-"        <div class=\"drow\"><span class=\"dlabel\">ROCKS FOUND</span><span class=\"dval\" id=\"rocks-found\">0</span></div>\n"
-"        <div class=\"drow\"><span class=\"dlabel\">LAST TYPE</span><span class=\"dval\" id=\"last-type\">---</span></div>\n"
+"        <div class=\"ptitle\">ROCK CATALOG <span style=\"display:flex;gap:8px;align-items:center;\"><span id=\"catalog-count\" style=\"color:var(--accent);\">0/8</span><span class=\"clr-btn\" onclick=\"clearCatalog()\">CLR</span></span></div>\n"
+"        <div id=\"catalog-list\" style=\"flex:1;min-height:0;overflow-y:auto;\"></div>\n"
 "      </div>\n"
 "    </div>\n"
 "  </div>\n"
@@ -388,7 +498,7 @@ const char webpage[] =
 "    <span><span class=\"sdot sdot-blue\"></span>BOARD2 SERCOM 9600</span>\n"
 "    <span><span class=\"sdot sdot-green\"></span>RADIO 600 BAUD</span>\n"
 "    <span><span class=\"sdot sdot-green\"></span>DRIVE: ARMED</span>\n"
-"    <span>v2.1.0 // DUAL-BOARD</span>\n"
+"    <span>v2.3.0 // CATALOG</span>\n"
 "  </footer>\n"
 "</div>\n"
 "\n"
@@ -407,7 +517,49 @@ const char webpage[] =
 "  document.getElementById('uptime').textContent = h+':'+m+':'+ss;\n"
 "},1000);\n"
 "\n"
-"var pkts=0, rocksFound=0, lastType='';\n"
+"var pkts=0, lastType='';\n"
+"\n"
+"// ── ROCK CATALOG (saved in the browser so it survives a page refresh) ──────────\n"
+"var currentScan = null;           // the most recent completed scan (for SAVE)\n"
+"var savedRocks  = [];             // up to 8 saved rocks\n"
+"try { savedRocks = JSON.parse(localStorage.getItem('lunarRocks') || '[]'); } catch(e) { savedRocks = []; }\n"
+"\n"
+"function persistCatalog(){ try { localStorage.setItem('lunarRocks', JSON.stringify(savedRocks)); } catch(e) {} }\n"
+"\n"
+"function renderCatalog(){\n"
+"  var c = document.getElementById('catalog-list');\n"
+"  document.getElementById('catalog-count').textContent = savedRocks.length + '/8';\n"
+"  if(!savedRocks.length){ c.innerHTML = '<div class=\"cat-empty\">NO ROCKS SAVED</div>'; return; }\n"
+"  var html = '';\n"
+"  for(var i=0;i<savedRocks.length;i++){\n"
+"    var r = savedRocks[i];\n"
+"    html += '<div class=\"cat-item\"><span class=\"cat-num\">'+(i+1)+'</span>'\n"
+"          + '<span class=\"cat-type\">'+r.type+'</span>'\n"
+"          + '<span class=\"cat-age\">'+r.age+' Ga</span></div>';\n"
+"  }\n"
+"  c.innerHTML = html;\n"
+"}\n"
+"\n"
+"function saveRock(){\n"
+"  if(savedRocks.length >= 8){ addLog('CATALOG FULL — 8/8','warn'); return; }\n"
+"  if(!currentScan || !currentScan.type || currentScan.type==='SCANNING' || currentScan.type==='NO DATA' || currentScan.type==='UNKNOWN'){\n"
+"    addLog('NO VALID ROCK TO SAVE','warn'); return;\n"
+"  }\n"
+"  savedRocks.push({\n"
+"    type: currentScan.type, age: currentScan.age, us: currentScan.us,\n"
+"    mag: currentScan.mag, ir: currentScan.ir, irc: currentScan.irc,\n"
+"    conf: currentScan.conf, matches: currentScan.matches\n"
+"  });\n"
+"  persistCatalog(); renderCatalog();\n"
+"  addLog('SAVED #'+savedRocks.length+': '+currentScan.type+' ('+currentScan.age+' Ga)','ok');\n"
+"}\n"
+"\n"
+"function clearCatalog(){\n"
+"  savedRocks = []; persistCatalog(); renderCatalog();\n"
+"  addLog('CATALOG CLEARED','warn');\n"
+"}\n"
+"\n"
+"renderCatalog();\n"
 "\n"
 "function addLog(msg,level){\n"
 "  var list=document.getElementById('log-list');\n"
@@ -418,7 +570,7 @@ const char webpage[] =
 "  el.className='log-item';\n"
 "  el.innerHTML='<span class=\"log-t\">'+t+'</span><span class=\"'+cls+'\">'+tag+'</span>'+msg;\n"
 "  list.prepend(el);\n"
-"  while(list.children.length>20)list.removeChild(list.lastChild);\n"
+"  while(list.children.length>60)list.removeChild(list.lastChild);\n"
 "}\n"
 "\n"
 "function updateSensors(){\n"
@@ -454,25 +606,61 @@ const char webpage[] =
 "        usEl.style.color=us?'var(--accent)':'var(--red)';\n"
 "      }\n"
 "      if(!scanning){\n"
-"        document.getElementById('magv').innerHTML=mag==='UP'?'&#8593; UP':'&#8595; DOWN';\n"
+"        var magEl=document.getElementById('magv');\n"
+"        if(mag==='UP'){ magEl.innerHTML='&#8593; UP';   magEl.style.color='var(--accent)'; }\n"
+"        else if(mag==='DOWN'){ magEl.innerHTML='&#8595; DOWN'; magEl.style.color='var(--accent)'; }\n"
+"        else { magEl.textContent='UNKNOWN'; magEl.style.color='var(--dim)'; }\n"
 "      }\n"
 "\n"
 "      var btn=document.getElementById('btn-scan');\n"
 "      var sts=document.getElementById('scan-status');\n"
 "      if(scanning){\n"
-"        btn.textContent='SCANNING...'; btn.disabled=true;\n"
+"        btn.textContent='SWEEPING...'; btn.disabled=true;\n"
 "        sts.textContent=timeLeft+'s REMAINING'; sts.style.color='var(--yellow)';\n"
 "      } else {\n"
 "        btn.textContent='SCAN ROCK'; btn.disabled=false;\n"
-"        sts.textContent=conf>0?'LAST: '+conf+'% — '+matches+'/4 SENSORS':'';\n"
+"        sts.textContent=conf>0?'LAST: '+conf+'% — '+matches+'/3 SENSORS':'';\n"
 "        sts.style.color='var(--dim)';\n"
 "      }\n"
 "      if(!scanning&&conf>0){\n"
 "        document.getElementById('spec-pct').textContent=conf+'%';\n"
 "        document.getElementById('spec-bar').style.width=conf+'%';\n"
-"        document.getElementById('conf-pct').textContent=matches+'/4';\n"
-"        document.getElementById('conf-bar').style.width=(matches/4*100)+'%';\n"
+"        document.getElementById('conf-pct').textContent=matches+'/3';\n"
+"        document.getElementById('conf-bar').style.width=(matches/3*100)+'%';\n"
 "      }\n"
+"\n"
+"      // ── SCAN READINGS — the frozen values the classifier used ──────\n"
+"      var shas    = p['SHAS']==='1';\n"
+"      var btnSave = document.getElementById('btn-save');\n"
+"      if(shas && !scanning){\n"
+"        var srUs  = p['SUS']==='1';\n"
+"        var srMag = p['SMAG']||'UNKNOWN';\n"
+"        var srIr  = parseInt(p['SIR'])||0;\n"
+"        var srIrc = p['SIRC']||'0';\n"
+"        var srAge = p['SAGE']||'-.-';\n"
+"        var usE=document.getElementById('sr-us');\n"
+"        usE.textContent=srUs?'DETECTED':'NONE';\n"
+"        usE.style.color=srUs?'var(--accent)':'var(--red)';\n"
+"        var magE=document.getElementById('sr-mag');\n"
+"        if(srMag==='UP'){ magE.innerHTML='&#8593; UP'; magE.style.color='var(--accent)'; }\n"
+"        else if(srMag==='DOWN'){ magE.innerHTML='&#8595; DOWN'; magE.style.color='var(--accent)'; }\n"
+"        else { magE.textContent='UNKNOWN'; magE.style.color='var(--dim)'; }\n"
+"        document.getElementById('sr-ir').textContent  = srIr+' s\\u207B\\u00B9 ('+(srIrc==='547'?'HIGH':srIrc==='312'?'LOW':'\\u2014')+')';\n"
+"        document.getElementById('sr-age').textContent = srAge+' Ga';\n"
+"        currentScan = {type:type, age:srAge, us:srUs, mag:srMag, ir:srIr, irc:srIrc, conf:conf, matches:matches};\n"
+"        var valid = (type && type!=='SCANNING' && type!=='NO DATA' && type!=='UNKNOWN');\n"
+"        btnSave.disabled = !valid;\n"
+"      } else if(scanning){\n"
+"        btnSave.disabled = true;\n"
+"      } else {\n"
+"        // no valid result (e.g. NO DATA) — clear readings\n"
+"        ['sr-us','sr-mag','sr-ir','sr-age'].forEach(function(id){\n"
+"          var e=document.getElementById(id); if(e){ e.innerHTML='&#8212;'; e.style.color=''; }\n"
+"        });\n"
+"        btnSave.disabled = true;\n"
+"        currentScan = null;\n"
+"      }\n"
+"\n"
 "      var rt=document.getElementById('rtype');\n"
 "      var displayType=scanning?'SCANNING':type;\n"
 "      if(rt.textContent!==displayType){\n"
@@ -480,10 +668,11 @@ const char webpage[] =
 "        setTimeout(function(){\n"
 "          rt.textContent=displayType; rt.style.opacity='1';\n"
 "          if(displayType!=='SCANNING'&&displayType!=='UNKNOWN'&&displayType!=='NO DATA'&&displayType!==lastType){\n"
-"            rocksFound++; lastType=displayType;\n"
-"            document.getElementById('rocks-found').textContent=rocksFound;\n"
-"            document.getElementById('last-type').textContent=displayType;\n"
+"            lastType=displayType;\n"
 "            addLog('IDENTIFIED: '+displayType+' ('+age+' Ga)','ok');\n"
+"          } else if(displayType==='NO DATA'&&displayType!==lastType){\n"
+"            lastType=displayType;\n"
+"            addLog('SCAN RETURNED NO DATA','warn');\n"
 "          }\n"
 "        },400);\n"
 "      }\n"
@@ -497,7 +686,7 @@ const char webpage[] =
 "\n"
 "function startScan(){\n"
 "  fetch('/scan/start')\n"
-"    .then(function(){ addLog('SCAN INITIATED — 5s window','ok'); })\n"
+"    .then(function(){ addLog('SWEEP INITIATED — 2s window','ok'); })\n"
 "    .catch(function(){ addLog('SCAN START FAILED','err'); });\n"
 "}\n"
 "\n"
@@ -580,18 +769,21 @@ void handleBackRight()    { moveBackRight();    server.send(200,"text/plain","OK
 void handleStop()         { stopMotors();       server.send(200,"text/plain","OK"); }
 
 void handleScanStart() {
-  memset(irSamples, 0, sizeof(irSamples));
-  memset(usVotes,   0, sizeof(usVotes));
-  memset(magVotes,  0, sizeof(magVotes));
-  sampleCount    = 0;
-  irAccumulator  = 0;
+  // Reset all sweep accumulators
+  usTime       = 0;
+  magUpTime    = 0;
+  magDownTime  = 0;
+  irHighTime   = 0;
+  irLowTime    = 0;
   rockType       = "SCANNING";
   scanConfidence = 0;
   scanMatches    = 0;
   scanning       = true;
   scanStart      = millis();
+  lastSampleMs   = millis();
+  armServo.write(SWEEP_MIN);   // start every sweep from the same place
   server.send(200, "text/plain", "OK");
-  Serial.println("Scan started");
+  Serial.println("Scan started (2s sweep)");
 }
 
 void handleSensorData() {
@@ -609,7 +801,14 @@ void handleSensorData() {
   data += "CONF:"     + String(scanConfidence)       + ",";
   data += "MATCHES:"  + String(scanMatches)          + ",";
   data += "SCANNING:" + String(scanning ? 1 : 0)     + ",";
-  data += "TIMELEFT:" + String(timeLeft);
+  data += "TIMELEFT:" + String(timeLeft)             + ",";
+  // Frozen scan-result readings (what the classifier actually used)
+  data += "SHAS:"     + String(scanHasResult ? 1 : 0) + ",";
+  data += "SUS:"      + String(scanResUs ? 1 : 0)     + ",";
+  data += "SMAG:"     + scanResMag                    + ",";
+  data += "SIR:"      + String(scanResIrRate)         + ",";
+  data += "SIRC:"     + String(scanResIrClass)        + ",";
+  data += "SAGE:"     + scanResAge;
   server.send(200, "text/plain", data);
 }
 
@@ -649,6 +848,10 @@ void setup() {
   pinMode(rightEn, OUTPUT); pinMode(rightDir, OUTPUT);
   stopMotors();
 
+  // Sensor-arm servo
+  armServo.attach(SERVO_PIN);
+  armServo.write(SWEEP_MIN);
+
   if (WiFi.status() == WL_NO_SHIELD) {
     Serial.println("ERROR: WiFi shield not found");
     while (true);
@@ -687,21 +890,27 @@ void loop() {
   readBoardTwo();
 
   if (scanning) {
-    if (millis() - scanStart >= SCAN_DURATION) {
+    unsigned long now     = millis();
+    unsigned long elapsed = now - scanStart;
+
+    if (elapsed >= SCAN_DURATION) {
       processScan();
     } else {
-      static unsigned long lastSample = 0;
-      if (millis() - lastSample >= 200 && sampleCount < 25) {
-        lastSample = millis();
-        usVotes[usDetected ? 1 : 0]++;
-        magVotes[magDirection == "UP" ? 1 : 0]++;
-        irAccumulator += irRate;
-        sampleCount++;
-        Serial.println("Sample " + String(sampleCount) +
-                       " IR="  + String(irRate) +
-                       " US="  + String(usDetected) +
-                       " MAG=" + magDirection);
-      }
+      // Move the arm smoothly across the sweep, timed to the 2s scan window
+      int angle = SWEEP_MIN + (int)((long)(SWEEP_MAX - SWEEP_MIN) * elapsed / SCAN_DURATION);
+      armServo.write(angle);
+
+      // Add the time since the last loop into whichever bucket matches the
+      // CURRENT sensor reading. Over the sweep these totals tell us how long
+      // each signal was actually present.
+      unsigned long dt = now - lastSampleMs;
+      lastSampleMs = now;
+
+      if (usDetected)                   usTime      += dt;
+      if      (magDirection == "UP")    magUpTime   += dt;
+      else if (magDirection == "DOWN")  magDownTime += dt;
+      if      (irClass == 547)          irHighTime  += dt;
+      else if (irClass == 312)          irLowTime   += dt;
     }
   }
 }

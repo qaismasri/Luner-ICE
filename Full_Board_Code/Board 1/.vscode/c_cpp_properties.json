@@ -10,6 +10,7 @@
             "includePath": [
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/include",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/src",
+                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/.pio/libdeps/board1_main/WiFiWebServer/src",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/.pio/libdeps/board1_main/WiFi101_Generic/src",
                 "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/.pio/libdeps/board1_main/WiFiMulti_Generic/src",
@@ -31,7 +32,6 @@
                 "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/I2S/src",
                 "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SAMD_AnalogCorrection/src",
                 "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SDU/src",
-                "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
                 "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/USBHost/src",
                 "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Wire",
                 ""
@@ -41,6 +41,7 @@
                 "path": [
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/include",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/src",
+                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/.pio/libdeps/board1_main/WiFiWebServer/src",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/.pio/libdeps/board1_main/WiFi101_Generic/src",
                     "C:/Users/shiva/Documents/GitHub/Luner-ICE/Full_Board_Code/Board 1/.pio/libdeps/board1_main/WiFiMulti_Generic/src",
@@ -62,7 +63,6 @@
                     "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/I2S/src",
                     "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SAMD_AnalogCorrection/src",
                     "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/SDU/src",
-                    "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Servo/src",
                     "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/USBHost/src",
                     "C:/Users/shiva/.platformio/packages/framework-arduino-samd-adafruit/libraries/Wire",
                     ""
