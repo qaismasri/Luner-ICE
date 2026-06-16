@@ -3,7 +3,6 @@
 // Reads: IR (interrupt), Ultrasonic (digital), Magnetic (BMM350 I2C), Radio (Serial1)
 // Sends: CSV sensor data to Board 1 via SERCOM1 TX (pin 10) at 9600 baud
 //
-// WIRING SUMMARY
 // ──────────────────────────────────────────────────────────────────────────────
 //  IR sensor output          → Pin 2  (interrupt-capable)
 //  Ultrasonic module output  → Pin 3  (digital HIGH = 40kHz detected)
@@ -45,7 +44,7 @@ const int     NUM_AVERAGES       = 5;
 const unsigned long MEASURE_WINDOW_MS = 200;
 const float   LAMBDA_A           = 547.0;
 const float   LAMBDA_B           = 312.0;
-const float   CLASSIFY_THRESH    = (547.0 + 312.0) / 2.0;  // 429.5
+const float   CLASSIFY_THRESH    = 419;  // 429.5
 const float   IR_NO_ROCK_THRESH  = 50.0;
 const unsigned long DEBOUNCE_US  = 40;
 
