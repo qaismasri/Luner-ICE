@@ -3,20 +3,20 @@
 // Receives sensor CSV from Board 2 via SERCOM1 RX (pin 11) at 9600 baud.
 // Hosts the control webpage and drives the motors.
 //
-// v2.3 CHANGES (this version)
-//   - MAGNETIC: website now shows UNKNOWN when there is no magnet (was defaulting
-//     to DOWN). Live reading and the frozen scan reading both handle UNKNOWN.
-//   - ROCK CATALOG: bottom-right panel is now a saved-rock list (up to 8). A
-//     "SAVE TO CATALOG" button stores the last scanned rock. Saved in the browser
-//     (localStorage) so it survives a page refresh. CLR button wipes it.
-//   - SCAN READINGS: the classification panel now shows the exact readings the
-//     classifier used for the last scan (US / MAG / IR / age). These are FROZEN
-//     in processScan() so the 1-second live updates from Board 2 don't overwrite
-//     them.
-//   - EVENT LOG: now reports "SCAN RETURNED NO DATA", and is scrollable so you
-//     can scroll back through earlier events.
-//   - LAYOUT: classification panel is taller (takes the bottom half of the middle
-//     column, cutting into the rotating rover graphic).
+// v2.5 CHANGES (this version)
+//   - MOTOR DIRECTION FIX. The motor +/GND terminals are wired swapped, so the
+//     direction pins were inverted (forward drove backward, left/right swapped).
+//     All motor logic now uses DIR_FWD / DIR_REV (DIR_FWD = LOW) instead of raw
+//     HIGH/LOW, which corrects both keyboard AND controller paths in one place.
+//   - CONTROLLER (GAMEPAD) SUPPORT. A KEYBOARD/CONTROLLER selector plus an Xbox-
+//     style gamepad driver (triggers = throttle, right stick X = steer) sending
+//     analogue motor speeds to a new /drive?left=&right= endpoint.
+//   - SAFETY. Every motor command carries an incrementing sequence number + a
+//     per-session id; the firmware discards stale/queued commands. A 500 ms
+//     watchdog cuts the motors if no command arrives (WiFi drop / tab close),
+//     fed by a ~200 ms client heartbeat on whichever input is active.
+//   - (unchanged) candidate-set classifier, per-sensor agreement, scan readings,
+//     rock catalog, scrollable event log.
 //
 // WIRING SUMMARY
 // ──────────────────────────────────────────────────────────────────────────────
@@ -66,6 +66,27 @@ const int leftDir   = 6;
 const int fullSpeed = 255;
 const int turnSpeed = 80;
 
+// Motor + and GND terminals are wired swapped, so a direction pin set LOW actually
+// drives the wheel FORWARD (HIGH = reverse). All motor logic uses these constants
+// instead of raw HIGH/LOW. If you ever rewire the terminals correctly, just swap
+// these back to FWD = HIGH, REV = LOW.
+const int DIR_FWD = LOW;
+const int DIR_REV = HIGH;
+
+// ── DRIVE SAFETY ────────────────────────────────────────────────────────────────
+// Watchdog: motors are cut if no drive command arrives within this window. The
+// browser re-sends the active command every ~200 ms as a heartbeat, so 500 ms
+// gives 2.5x margin. If WiFi drops or the tab closes, the rover stops by itself.
+const unsigned long WATCHDOG_MS = 500;
+unsigned long lastCmdTime = 0;
+
+// Stale-command filter: every motor command from the browser carries an
+// incrementing ?s= sequence number and a ?sid= session id (resets on reload).
+// Commands whose sequence isn't newer than the last executed one are discarded,
+// so requests that piled up in the TCP queue don't execute out of order.
+String lastSid = "";
+long   lastSeq = 0;
+
 // ── SERVO (SENSOR ARM) ──────────────────────────────────────────────────────────
 const int SERVO_PIN = 3;       // servo signal wire
 const int SWEEP_MIN = 70;      // sweep start angle (deg) — tune to your arm
@@ -84,113 +105,143 @@ String rockType     = "SCANNING";
 // ── SCAN STATE ────────────────────────────────────────────────────────────────
 bool          scanning  = false;
 unsigned long scanStart  = 0;
-const unsigned long SCAN_DURATION = 2500;   // 2-second sweep
+const unsigned long SCAN_DURATION = 4000;   // sweep length (ms)
 
 // How long (ms) a signal must be seen DURING the sweep to count.
-// These are the main things to tune after watching the serial output.
 const unsigned long US_MIN_TIME  = 500;     // ultrasound detected this long -> YES
 const unsigned long MAG_MIN_TIME = 300;     // a field direction seen this long -> trust it
-const unsigned long IR_MIN_TIME  = 300;     // a valid IR rate seen this long  -> trust it
+
+// Minimum peak confidence (0-100) for an IR class to count as a valid reading.
+// The sensor briefly aligns with the emitter during the sweep; we keep the single
+// highest-confidence hit for each class and discard everything below this floor.
+const int IR_MIN_CONFIDENCE = 20;
 
 // Accumulated time (ms) each signal was present during the sweep
 unsigned long usTime       = 0;
 unsigned long magUpTime    = 0;
 unsigned long magDownTime  = 0;
-unsigned long irHighTime   = 0;   // 547 s^-1
-unsigned long irLowTime    = 0;   // 312 s^-1
+int           irHighPeak   = 0;   // peak irConfidence seen while irClass == 547
+int           irLowPeak    = 0;   // peak irConfidence seen while irClass == 312
 unsigned long lastSampleMs = 0;   // used to measure time between loops
+int           lastValidIrRate = 0; // IR rate captured at the peak confidence hit
 
 int scanConfidence = 0;
-int scanMatches    = 0;
+int scanMatches    = 0;   // how many VALID sensors agree with the chosen type
+int scanValid      = 0;   // how many sensors produced a usable reading
+bool scanDetermined = false; // true if the readings pin down exactly one type
 
 // ── FROZEN SCAN RESULT ─────────────────────────────────────────────────────────
-// These are the exact readings the classifier used for the LAST scan. They are
-// snapshotted in processScan() and are NOT touched by the 1-second live updates
-// coming from Board 2, so the webpage can keep displaying what the scan measured.
-bool   scanHasResult  = false;     // true once a valid scan has produced a result
+bool   scanHasResult  = false;
 bool   scanResUs      = false;     // ultrasound present?
-String scanResMag     = "UNKNOWN"; // "UP" / "DOWN"
-int    scanResIrRate  = 0;         // averaged IR rate at scan time (s^-1)
-int    scanResIrClass = 0;         // 547 (HIGH) or 312 (LOW)
+String scanResMag     = "UNKNOWN"; // "UP" / "DOWN" / "UNKNOWN"
+String scanResIrState = "NONE";    // "HIGH" / "LOW" / "NONE"
+int    scanResIrRate  = 0;         // IR rate (s^-1), 0 if none
 String scanResAge     = "-.-";     // radio age at scan time
+String agIr  = "-";
+String agUs  = "-";
+String agMag = "-";
 
-// ── ROCK CLASSIFICATION ───────────────────────────────────────────────────────
-String classifyRock(bool irHigh, bool us, bool magUp) {
-  if ( irHigh && !magUp &&  us) return "BASALTOID";
-  if (!irHigh && !magUp && !us) return "GRAVION";
-  if (!irHigh &&  magUp &&  us) return "REGOLIX";
-  if ( irHigh &&  magUp && !us) return "LUNARITE";
-  // Fallback: US + MAG alone uniquely identify all four types
-  if ( us && !magUp) return "BASALTOID";
-  if ( us &&  magUp) return "REGOLIX";
-  if (!us && !magUp) return "GRAVION";
-  return "LUNARITE";
-}
+// ── ROCK CLASSIFICATION (candidate-set / intersection model) ───────────────────
+// Type bits: BASALTOID=1, GRAVION=2, REGOLIX=4, LUNARITE=8
+const int M_BAS = 1 << 0;
+const int M_GRA = 1 << 1;
+const int M_REG = 1 << 2;
+const int M_LUN = 1 << 3;
+const int M_ALL = M_BAS | M_GRA | M_REG | M_LUN;
+const char* TYPE_NAMES[4] = { "BASALTOID", "GRAVION", "REGOLIX", "LUNARITE" };
+// Reference (brief): IR high -> Bas/Lun, IR low -> Gra/Reg
+//                    US yes  -> Bas/Reg, US no  -> Gra/Lun
+//                    MAG up  -> Reg/Lun, MAG dn -> Bas/Gra
 
 void processScan() {
   armServo.write(SWEEP_MIN);   // return the arm to the start position
 
-  // ── Resolve each sensor from the accumulated time ──────────────────
+  // ── Resolve each sensor to a state ─────────────────────────────────
   bool finalUs = (usTime >= US_MIN_TIME);
 
-  unsigned long magTotal  = magUpTime + magDownTime;
-  bool          finalMagUp = (magUpTime >= magDownTime);
+  unsigned long magTotal = magUpTime + magDownTime;
+  String magState;
+  if (magTotal < MAG_MIN_TIME)            magState = "UNKNOWN";
+  else magState = (magUpTime >= magDownTime) ? "UP" : "DOWN";
 
-  unsigned long irTotal   = irHighTime + irLowTime;
-  bool          finalHigh = (irHighTime >= irLowTime);
+  String irState;
+  if (irHighPeak < IR_MIN_CONFIDENCE && irLowPeak < IR_MIN_CONFIDENCE)
+    irState = "NONE";
+  else
+    irState = (irHighPeak >= irLowPeak) ? "HIGH" : "LOW";
 
-  // If basically nothing was picked up, bail out
-  if (!finalUs && magTotal < MAG_MIN_TIME && irTotal < IR_MIN_TIME) {
+  // If we genuinely picked up nothing, bail out
+  if (!finalUs && magState == "UNKNOWN" && irState == "NONE") {
     rockType      = "NO DATA";
-    scanHasResult = false;          // nothing to show in the readings panel
+    scanHasResult = false;
     scanning      = false;
     Serial.println("Scan complete: NO DATA");
     return;
   }
 
-  magDirection = finalMagUp ? "UP" : "DOWN";
-  usDetected   = finalUs;
-  rockType     = classifyRock(finalHigh, finalUs, finalMagUp);
+  // ── Candidate masks (each sensor narrows to 2 types) ───────────────
+  int irMask  = (irState == "HIGH") ? (M_BAS | M_LUN)
+              : (irState == "LOW")  ? (M_GRA | M_REG)
+              :                        M_ALL;            // NONE = no constraint
+  int usMask  = finalUs ? (M_BAS | M_REG) : (M_GRA | M_LUN); // US always votes
+  int magMask = (magState == "UP")   ? (M_REG | M_LUN)
+              : (magState == "DOWN") ? (M_BAS | M_GRA)
+              :                         M_ALL;           // UNKNOWN = no constraint
 
-  // ── Freeze the readings that produced this classification ──────────
+  int mask = irMask & usMask & magMask;
+
+  bool conflict = false;
+  if (mask == 0) {
+    // Sensors contradict. IR+US can never contradict each other, so trust them
+    // and let MAG be the one flagged as disagreeing.
+    conflict = true;
+    mask = irMask & usMask;
+    if (mask == 0) mask = usMask;     // last resort (IR was NONE)
+  }
+
+  int pc = __builtin_popcount(mask);
+  scanDetermined = (pc == 1);
+
+  // Pick the chosen type (lowest set bit)
+  int typeIdx = -1;
+  for (int i = 0; i < 4; i++) if (mask & (1 << i)) { typeIdx = i; break; }
+  int typeBit = (typeIdx >= 0) ? (1 << typeIdx) : 0;
+  rockType = (typeIdx >= 0) ? TYPE_NAMES[typeIdx] : "UNKNOWN";
+
+  // ── Per-sensor agreement with the chosen type ──────────────────────
+  agIr  = (irState == "NONE")     ? "-" : ((irMask  & typeBit) ? "Y" : "N");
+  agUs  = (typeBit)               ? ((usMask & typeBit) ? "Y" : "N") : "-";
+  agMag = (magState == "UNKNOWN") ? "-" : ((magMask & typeBit) ? "Y" : "N");
+
+  int agreeCount = 0, validCount = 0;
+  if (agIr  != "-") { validCount++; if (agIr  == "Y") agreeCount++; }
+  if (agUs  != "-") { validCount++; if (agUs  == "Y") agreeCount++; }
+  if (agMag != "-") { validCount++; if (agMag == "Y") agreeCount++; }
+
+  scanMatches = agreeCount;
+  scanValid   = validCount;
+  if (scanDetermined)
+    scanConfidence = (validCount > 0) ? (int)round((float)agreeCount / validCount * 100.0) : 0;
+  else
+    scanConfidence = (pc > 0) ? (int)round(100.0 / pc) : 0;
+
+  // ── Freeze for the webpage ─────────────────────────────────────────
   scanResUs      = finalUs;
-  scanResMag     = magDirection;
-  scanResIrClass = finalHigh ? 547 : 312;
-  scanResIrRate  = irRate;            // most recent averaged rate from Board 2
+  scanResMag     = magState;
+  scanResIrState = irState;
+  scanResIrRate  = (irState == "NONE") ? 0 : lastValidIrRate;
   scanResAge     = rockAge;
   scanHasResult  = true;
 
-  // ── Confidence per sensor (0..1) ───────────────────────────────────
-  // US: how decisively the detection time cleared / missed the threshold
-  float usConf = (float)abs((long)usTime - (long)US_MIN_TIME) / (float)US_MIN_TIME;
-  if (usConf > 1.0) usConf = 1.0;
-
-  // MAG: how one-sided the up-vs-down time was (unanimous = 1, even split = 0)
-  float magConf = 0;
-  if (magTotal > 0)
-    magConf = ((float)max(magUpTime, magDownTime) / magTotal - 0.5) * 2.0;
-
-  // IR: how one-sided the high-vs-low time was
-  float irConf = 0;
-  if (irTotal > 0)
-    irConf = ((float)max(irHighTime, irLowTime) / irTotal - 0.5) * 2.0;
-
-  scanConfidence = (int)round(((usConf + magConf + irConf) / 3.0) * 100.0);
-
-  scanMatches = 0;
-  if (usConf  >= 0.8) scanMatches++;
-  if (magConf >= 0.8) scanMatches++;
-  if (irConf  >= 0.8) scanMatches++;
-
   scanning = false;
-  Serial.println("Scan complete: " + rockType +
-                 " (conf=" + String(scanConfidence) + "% " +
-                 String(scanMatches) + "/3)");
-  Serial.println("  usTime="  + String(usTime) +
-                 " magUp="    + String(magUpTime) +
-                 " magDown="  + String(magDownTime) +
-                 " irHigh="   + String(irHighTime) +
-                 " irLow="    + String(irLowTime));
+  Serial.println("Scan: " + rockType +
+                 " conf=" + String(scanConfidence) + "% agree=" +
+                 String(agreeCount) + "/" + String(validCount) +
+                 (conflict ? " [CONFLICT]" : "") +
+                 (scanDetermined ? "" : " [AMBIGUOUS]"));
+  Serial.println("  IR=" + irState + "(" + String(scanResIrRate) + ")" +
+                 " US=" + String(finalUs) + " MAG=" + magState +
+                 "  ag IR/US/MAG=" + agIr + "/" + agUs + "/" + agMag);
 }
 
 // ── PARSE CSV FROM BOARD 2 ────────────────────────────────────────────────────
@@ -273,6 +324,10 @@ const char webpage[] =
 "    .dval { color: var(--accent); font-size: 11px; }\n"
 "    .dval-red    { color: var(--red);   text-shadow: 0 0 6px rgba(255,56,56,0.4); }\n"
 "    .dval-green  { color: var(--green); text-shadow: 0 0 6px rgba(0,255,136,0.35); }\n"
+"    .ag { font-size: 12px; margin-right: 7px; }\n"
+"    .ag-y  { color: var(--green); }\n"
+"    .ag-n  { color: var(--red); }\n"
+"    .ag-na { color: var(--dim); }\n"
 "    .drive-grid { display: grid; grid-template-columns: repeat(3, 62px); grid-template-rows: repeat(3, 62px); gap: 5px; justify-content: center; }\n"
 "    .dbtn { width: 62px; height: 62px; background: rgba(0,18,45,0.85); border: 1px solid var(--border-hi); color: var(--accent); font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.1s; position: relative; font-family: 'Share Tech Mono', monospace; }\n"
 "    .dbtn::before { content: ''; position: absolute; top: -1px; left: -1px; width: 8px; height: 8px; border-top: 1px solid var(--accent); border-left: 1px solid var(--accent); opacity: 0.6; }\n"
@@ -292,6 +347,8 @@ const char webpage[] =
 "    .scan-btn:disabled { color: var(--yellow); border-color: var(--yellow); cursor: not-allowed; }\n"
 "    #btn-save { margin-top: 8px; }\n"
 "    #btn-save:disabled { color: var(--dim); border-color: var(--border); cursor: not-allowed; }\n"
+"    .ctrl-select { width: 100%; margin-top: 8px; padding: 7px 8px; background: rgba(0,18,45,0.85); border: 1px solid var(--border-hi); color: var(--accent); font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: 3px; cursor: pointer; appearance: none; -webkit-appearance: none; text-align: center; }\n"
+"    .ctrl-select option { background: #020b18; color: var(--accent); }\n"
 "    .cat-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid rgba(10,53,80,0.35); font-size: 11px; }\n"
 "    .cat-item:last-child { border-bottom: none; }\n"
 "    .cat-num  { color: var(--dim); width: 16px; flex-shrink: 0; }\n"
@@ -443,15 +500,16 @@ const char webpage[] =
 "          <div class=\"bar-track\"><div class=\"bar-fill\" id=\"spec-bar\" style=\"width:0%\"></div></div>\n"
 "        </div>\n"
 "        <div style=\"margin-top:8px;\">\n"
-"          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;\"><span>SENSORS AGREE</span><span id=\"conf-pct\" style=\"color:var(--accent);\">0/3</span></div>\n"
+"          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-bottom:3px;letter-spacing:1px;\"><span>SENSORS AGREE</span><span id=\"conf-pct\" style=\"color:var(--accent);\">0/0</span></div>\n"
 "          <div class=\"bar-track\"><div class=\"bar-fill\" id=\"conf-bar\" style=\"width:0%\"></div></div>\n"
 "        </div>\n"
 "        <div style=\"margin-top:16px;padding-top:12px;border-top:1px solid var(--border);\">\n"
 "          <div style=\"font-size:9px;letter-spacing:3px;color:var(--dim);margin-bottom:8px;\">SCAN READINGS (USED TO CLASSIFY)</div>\n"
-"          <div class=\"drow\"><span class=\"dlabel\">ULTRASONIC 40kHz</span><span class=\"dval\" id=\"sr-us\">&#8212;</span></div>\n"
-"          <div class=\"drow\"><span class=\"dlabel\">MAGNETIC FIELD</span><span class=\"dval\" id=\"sr-mag\">&#8212;</span></div>\n"
-"          <div class=\"drow\"><span class=\"dlabel\">IR PULSE RATE</span><span class=\"dval\" id=\"sr-ir\">&#8212;</span></div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">ULTRASONIC 40kHz</span><span><span class=\"ag ag-na\" id=\"ag-us\">&#8212;</span><span class=\"dval\" id=\"sr-us\">&#8212;</span></span></div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">MAGNETIC FIELD</span><span><span class=\"ag ag-na\" id=\"ag-mag\">&#8212;</span><span class=\"dval\" id=\"sr-mag\">&#8212;</span></span></div>\n"
+"          <div class=\"drow\"><span class=\"dlabel\">IR PULSE RATE</span><span><span class=\"ag ag-na\" id=\"ag-ir\">&#8212;</span><span class=\"dval\" id=\"sr-ir\">&#8212;</span></span></div>\n"
 "          <div class=\"drow\"><span class=\"dlabel\">RADIO AGE</span><span class=\"dval\" id=\"sr-age\">&#8212;</span></div>\n"
+"          <div id=\"scan-note\" style=\"font-size:9px;letter-spacing:1px;margin-top:8px;min-height:12px;\"></div>\n"
 "        </div>\n"
 "      </div>\n"
 "    </div>\n"
@@ -460,7 +518,7 @@ const char webpage[] =
 "      <div class=\"panel\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
 "        <div class=\"ptitle\">DRIVE CONTROL <div class=\"ptitle-dot\"></div></div>\n"
-"        <div style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-bottom:11px;\">WASD OR CLICK</div>\n"
+"        <div id=\"ctrl-hint\" style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-bottom:11px;\">WASD OR CLICK</div>\n"
 "        <div class=\"drive-grid\">\n"
 "          <div class=\"dbtn-empty\"></div>\n"
 "          <button id=\"btn-fwd\"   class=\"dbtn\"           onmousedown=\"cmd('forward',this)\"  onmouseup=\"rel(this)\" onmouseleave=\"rel(this)\">&#9650;</button>\n"
@@ -473,9 +531,14 @@ const char webpage[] =
 "          <div class=\"dbtn-empty\"></div>\n"
 "        </div>\n"
 "        <div id=\"cmdlabel\" style=\"font-size:10px;letter-spacing:4px;color:var(--dim);text-align:center;margin-top:13px;min-height:16px;\">STANDBY</div>\n"
+"        <select id=\"ctrl-select\" class=\"ctrl-select\" onchange=\"setControlMode(this.value)\">\n"
+"          <option value=\"keyboard\">KEYBOARD</option>\n"
+"          <option value=\"controller\">CONTROLLER</option>\n"
+"        </select>\n"
 "        <button id=\"btn-scan\" class=\"scan-btn\" onclick=\"startScan()\">SCAN ROCK</button>\n"
 "        <div id=\"scan-status\" style=\"font-size:9px;letter-spacing:2px;color:var(--dim);text-align:center;margin-top:6px;min-height:13px;\"></div>\n"
 "        <button id=\"btn-save\" class=\"scan-btn\" onclick=\"saveRock()\" disabled>SAVE TO CATALOG</button>\n"
+"        <div class=\"drow\" style=\"margin-top:10px;\"><span class=\"dlabel\">GAMEPAD</span><span class=\"dval dval-red\" id=\"gp-status\">DISCONNECTED</span></div>\n"
 "      </div>\n"
 "      <div class=\"panel\">\n"
 "        <span class=\"c-tr\"></span><span class=\"c-bl\"></span>\n"
@@ -497,8 +560,8 @@ const char webpage[] =
 "    <span><span class=\"sdot sdot-green\"></span>SENSOR REFRESH: 1s</span>\n"
 "    <span><span class=\"sdot sdot-blue\"></span>BOARD2 SERCOM 9600</span>\n"
 "    <span><span class=\"sdot sdot-green\"></span>RADIO 600 BAUD</span>\n"
-"    <span><span class=\"sdot sdot-green\"></span>DRIVE: ARMED</span>\n"
-"    <span>v2.3.0 // CATALOG</span>\n"
+"    <span><span class=\"sdot sdot-green\"></span>WATCHDOG 500ms</span>\n"
+"    <span>v2.5.0 // CONTROLLER</span>\n"
 "  </footer>\n"
 "</div>\n"
 "\n"
@@ -520,8 +583,8 @@ const char webpage[] =
 "var pkts=0, lastType='';\n"
 "\n"
 "// ── ROCK CATALOG (saved in the browser so it survives a page refresh) ──────────\n"
-"var currentScan = null;           // the most recent completed scan (for SAVE)\n"
-"var savedRocks  = [];             // up to 8 saved rocks\n"
+"var currentScan = null;\n"
+"var savedRocks  = [];\n"
 "try { savedRocks = JSON.parse(localStorage.getItem('lunarRocks') || '[]'); } catch(e) { savedRocks = []; }\n"
 "\n"
 "function persistCatalog(){ try { localStorage.setItem('lunarRocks', JSON.stringify(savedRocks)); } catch(e) {} }\n"
@@ -547,7 +610,7 @@ const char webpage[] =
 "  }\n"
 "  savedRocks.push({\n"
 "    type: currentScan.type, age: currentScan.age, us: currentScan.us,\n"
-"    mag: currentScan.mag, ir: currentScan.ir, irc: currentScan.irc,\n"
+"    mag: currentScan.mag, ir: currentScan.ir, irState: currentScan.irState,\n"
 "    conf: currentScan.conf, matches: currentScan.matches\n"
 "  });\n"
 "  persistCatalog(); renderCatalog();\n"
@@ -571,6 +634,13 @@ const char webpage[] =
 "  el.innerHTML='<span class=\"log-t\">'+t+'</span><span class=\"'+cls+'\">'+tag+'</span>'+msg;\n"
 "  list.prepend(el);\n"
 "  while(list.children.length>60)list.removeChild(list.lastChild);\n"
+"}\n"
+"\n"
+"function tick(el,v){\n"
+"  if(!el)return;\n"
+"  if(v==='Y'){ el.textContent='\\u2713'; el.className='ag ag-y'; }\n"
+"  else if(v==='N'){ el.textContent='\\u2717'; el.className='ag ag-n'; }\n"
+"  else { el.textContent='\\u2014'; el.className='ag ag-na'; }\n"
 "}\n"
 "\n"
 "function updateSensors(){\n"
@@ -619,25 +689,27 @@ const char webpage[] =
 "        sts.textContent=timeLeft+'s REMAINING'; sts.style.color='var(--yellow)';\n"
 "      } else {\n"
 "        btn.textContent='SCAN ROCK'; btn.disabled=false;\n"
-"        sts.textContent=conf>0?'LAST: '+conf+'% — '+matches+'/3 SENSORS':'';\n"
+"        sts.textContent=conf>0?'LAST: '+conf+'% — '+matches+'/'+(parseInt(p['SVALID'])||0)+' AGREE':'';\n"
 "        sts.style.color='var(--dim)';\n"
 "      }\n"
 "      if(!scanning&&conf>0){\n"
+"        var validN = parseInt(p['SVALID'])||0;\n"
 "        document.getElementById('spec-pct').textContent=conf+'%';\n"
 "        document.getElementById('spec-bar').style.width=conf+'%';\n"
-"        document.getElementById('conf-pct').textContent=matches+'/3';\n"
-"        document.getElementById('conf-bar').style.width=(matches/3*100)+'%';\n"
+"        document.getElementById('conf-pct').textContent=matches+'/'+validN;\n"
+"        document.getElementById('conf-bar').style.width=(validN?matches/validN*100:0)+'%';\n"
 "      }\n"
 "\n"
-"      // ── SCAN READINGS — the frozen values the classifier used ──────\n"
 "      var shas    = p['SHAS']==='1';\n"
 "      var btnSave = document.getElementById('btn-save');\n"
+"      var noteEl  = document.getElementById('scan-note');\n"
 "      if(shas && !scanning){\n"
-"        var srUs  = p['SUS']==='1';\n"
-"        var srMag = p['SMAG']||'UNKNOWN';\n"
-"        var srIr  = parseInt(p['SIR'])||0;\n"
-"        var srIrc = p['SIRC']||'0';\n"
-"        var srAge = p['SAGE']||'-.-';\n"
+"        var srUs   = p['SUS']==='1';\n"
+"        var srMag  = p['SMAG']||'UNKNOWN';\n"
+"        var srIr   = parseInt(p['SIR'])||0;\n"
+"        var srIrSt = p['SIRST']||'NONE';\n"
+"        var srAge  = p['SAGE']||'-.-';\n"
+"        var det    = p['SDET']==='1';\n"
 "        var usE=document.getElementById('sr-us');\n"
 "        usE.textContent=srUs?'DETECTED':'NONE';\n"
 "        usE.style.color=srUs?'var(--accent)':'var(--red)';\n"
@@ -645,20 +717,29 @@ const char webpage[] =
 "        if(srMag==='UP'){ magE.innerHTML='&#8593; UP'; magE.style.color='var(--accent)'; }\n"
 "        else if(srMag==='DOWN'){ magE.innerHTML='&#8595; DOWN'; magE.style.color='var(--accent)'; }\n"
 "        else { magE.textContent='UNKNOWN'; magE.style.color='var(--dim)'; }\n"
-"        document.getElementById('sr-ir').textContent  = srIr+' s\\u207B\\u00B9 ('+(srIrc==='547'?'HIGH':srIrc==='312'?'LOW':'\\u2014')+')';\n"
-"        document.getElementById('sr-age').textContent = srAge+' Ga';\n"
-"        currentScan = {type:type, age:srAge, us:srUs, mag:srMag, ir:srIr, irc:srIrc, conf:conf, matches:matches};\n"
-"        var valid = (type && type!=='SCANNING' && type!=='NO DATA' && type!=='UNKNOWN');\n"
-"        btnSave.disabled = !valid;\n"
+"        var irE=document.getElementById('sr-ir');\n"
+"        if(srIrSt==='NONE'){ irE.textContent='\\u2014 (no reading)'; irE.style.color='var(--dim)'; }\n"
+"        else { irE.textContent=srIr+' s\\u207B\\u00B9 ('+srIrSt+')'; irE.style.color='var(--accent)'; }\n"
+"        document.getElementById('sr-age').textContent=srAge+' Ga';\n"
+"        tick(document.getElementById('ag-us'),  p['AGUS']||'-');\n"
+"        tick(document.getElementById('ag-mag'), p['AGMAG']||'-');\n"
+"        tick(document.getElementById('ag-ir'),  p['AGIR']||'-');\n"
+"        if(noteEl){\n"
+"          if(!det){ noteEl.textContent='AMBIGUOUS — need another sensor to confirm'; noteEl.style.color='var(--yellow)'; }\n"
+"          else if(p['AGIR']==='N'||p['AGUS']==='N'||p['AGMAG']==='N'){ noteEl.textContent='CONFLICT — one sensor disagrees'; noteEl.style.color='var(--red)'; }\n"
+"          else { noteEl.textContent=''; }\n"
+"        }\n"
+"        currentScan = {type:type, age:srAge, us:srUs, mag:srMag, ir:srIr, irState:srIrSt, conf:conf, matches:matches};\n"
+"        btnSave.disabled = !(type && type!=='SCANNING' && type!=='NO DATA' && type!=='UNKNOWN');\n"
 "      } else if(scanning){\n"
 "        btnSave.disabled = true;\n"
 "      } else {\n"
-"        // no valid result (e.g. NO DATA) — clear readings\n"
 "        ['sr-us','sr-mag','sr-ir','sr-age'].forEach(function(id){\n"
 "          var e=document.getElementById(id); if(e){ e.innerHTML='&#8212;'; e.style.color=''; }\n"
 "        });\n"
-"        btnSave.disabled = true;\n"
-"        currentScan = null;\n"
+"        ['ag-us','ag-mag','ag-ir'].forEach(function(id){ tick(document.getElementById(id),'-'); });\n"
+"        if(noteEl) noteEl.textContent='';\n"
+"        btnSave.disabled = true; currentScan = null;\n"
 "      }\n"
 "\n"
 "      var rt=document.getElementById('rtype');\n"
@@ -686,33 +767,134 @@ const char webpage[] =
 "\n"
 "function startScan(){\n"
 "  fetch('/scan/start')\n"
-"    .then(function(){ addLog('SWEEP INITIATED — 2s window','ok'); })\n"
+"    .then(function(){ addLog('SWEEP INITIATED','ok'); })\n"
 "    .catch(function(){ addLog('SCAN START FAILED','err'); });\n"
 "}\n"
 "\n"
+"// ══ DRIVE CONTROL ════════════════════════════════════════════════════════════\n"
 "var routeMap={forward:'/forward',backward:'/backward',left:'/left',right:'/right',stop:'/stop'};\n"
 "var routeNames={'/forward':'FORWARD','/backward':'BACKWARD','/left':'LEFT','/right':'RIGHT','/stop':'STANDBY',\n"
 "  '/forwardleft':'FWD-LEFT','/forwardright':'FWD-RIGHT','/backleft':'BACK-LEFT','/backright':'BACK-RIGHT'};\n"
-"function setLabel(t,a){var l=document.getElementById('cmdlabel');l.textContent=t;l.style.color=a?(t==='STOP'?'var(--red)':'var(--accent)'):'var(--dim)';}\n"
-"function cmd(n,b){fetch(routeMap[n]||'/stop');b.classList.add('active');setLabel(n.toUpperCase(),true);}\n"
-"function rel(b){if(!b.classList.contains('active'))return;fetch('/stop');b.classList.remove('active');setTimeout(function(){setLabel('STANDBY',false);},250);}\n"
 "\n"
-"var keys={},kMap={w:'btn-fwd',a:'btn-left',s:'btn-back',d:'btn-right'};\n"
-"function updateMovement(){\n"
-"  var r='/stop';\n"
-"  if(keys.w&&keys.a)r='/forwardleft'; else if(keys.w&&keys.d)r='/forwardright';\n"
-"  else if(keys.s&&keys.a)r='/backleft'; else if(keys.s&&keys.d)r='/backright';\n"
-"  else if(keys.w)r='/forward'; else if(keys.s)r='/backward';\n"
-"  else if(keys.a)r='/left'; else if(keys.d)r='/right';\n"
-"  fetch(r); setLabel(routeNames[r]||'STANDBY',r!=='/stop');\n"
+"var ctrlMode='keyboard';\n"
+"var kbPollHandle=null;\n"
+"var lastRoute='/stop';\n"
+"var lastSendTime=0;\n"
+"var btnRoute=null;   // set while an on-screen button is held\n"
+"\n"
+"// Stale-command protection: each command carries an incrementing seq + session id.\n"
+"var sessionId=Math.random().toString(36).substr(2,8);\n"
+"var cmdSeq=0;\n"
+"function cmdUrl(base){ var sep=base.indexOf('?')>=0?'&':'?'; return base+sep+'s='+(++cmdSeq)+'&sid='+sessionId; }\n"
+"\n"
+"function setLabel(t,a){ var l=document.getElementById('cmdlabel'); l.textContent=t; l.style.color=a?(t==='STOP'?'var(--red)':'var(--accent)'):'var(--dim)'; }\n"
+"\n"
+"// On-screen buttons only set/clear btnRoute; kbPoll does the actual sending so the\n"
+"// 200ms heartbeat keeps the firmware watchdog alive while a button is held.\n"
+"function cmd(name,btn){ btnRoute=routeMap[name]||'/stop'; btn.classList.add('active'); setLabel(name.toUpperCase(),true); }\n"
+"function rel(btn){ if(!btn.classList.contains('active'))return; btnRoute=null; btn.classList.remove('active'); }\n"
+"\n"
+"function setControlMode(mode){\n"
+"  ctrlMode=mode;\n"
+"  fetch(cmdUrl('/stop')).catch(function(){});\n"
+"  lastRoute='/stop'; btnRoute=null; setLabel('STANDBY',false);\n"
+"  keys={};\n"
+"  ['btn-fwd','btn-left','btn-back','btn-right'].forEach(function(id){ document.getElementById(id).classList.remove('active'); });\n"
+"  if(mode==='keyboard'){\n"
+"    document.getElementById('ctrl-hint').textContent='WASD OR CLICK';\n"
+"    if(!kbPollHandle) kbPollHandle=setInterval(kbPoll,50);\n"
+"    addLog('MODE: KEYBOARD','ok');\n"
+"  } else {\n"
+"    document.getElementById('ctrl-hint').textContent='CONTROLLER ACTIVE';\n"
+"    clearInterval(kbPollHandle); kbPollHandle=null;\n"
+"    gpLastL=null; gpLastR=null;\n"
+"    addLog('MODE: CONTROLLER','ok');\n"
+"  }\n"
+"}\n"
+"\n"
+"var keys={}, kMap={w:'btn-fwd',a:'btn-left',s:'btn-back',d:'btn-right'};\n"
+"function getKeyRoute(){\n"
+"  if(keys.w&&keys.a)return '/forwardleft';\n"
+"  if(keys.w&&keys.d)return '/forwardright';\n"
+"  if(keys.s&&keys.a)return '/backleft';\n"
+"  if(keys.s&&keys.d)return '/backright';\n"
+"  if(keys.w)return '/forward';\n"
+"  if(keys.s)return '/backward';\n"
+"  if(keys.a)return '/left';\n"
+"  if(keys.d)return '/right';\n"
+"  return '/stop';\n"
+"}\n"
+"// Runs every 50ms in keyboard mode. Sends a command only when the route changes,\n"
+"// or every 200ms while moving (heartbeat). Held button (btnRoute) wins over WASD.\n"
+"function kbPoll(){\n"
+"  if(ctrlMode!=='keyboard')return;\n"
+"  var route = btnRoute || getKeyRoute();\n"
+"  var now=Date.now();\n"
+"  if(route===lastRoute && (route==='/stop' || now-lastSendTime<200)) return;\n"
+"  lastRoute=route; lastSendTime=now;\n"
+"  fetch(cmdUrl(route)).catch(function(){});\n"
+"  setLabel(routeNames[route]||'STANDBY', route!=='/stop');\n"
 "}\n"
 "document.addEventListener('keydown',function(e){\n"
+"  if(ctrlMode!=='keyboard')return;\n"
 "  var k=e.key.toLowerCase(); if(!['w','a','s','d'].includes(k)||keys[k])return;\n"
-"  keys[k]=true; if(kMap[k])document.getElementById(kMap[k]).classList.add('active'); updateMovement();\n"
+"  keys[k]=true; if(kMap[k])document.getElementById(kMap[k]).classList.add('active');\n"
 "});\n"
 "document.addEventListener('keyup',function(e){\n"
+"  if(ctrlMode!=='keyboard')return;\n"
 "  var k=e.key.toLowerCase(); if(!['w','a','s','d'].includes(k))return;\n"
-"  keys[k]=false; if(kMap[k])document.getElementById(kMap[k]).classList.remove('active'); updateMovement();\n"
+"  keys[k]=false; if(kMap[k])document.getElementById(kMap[k]).classList.remove('active');\n"
+"});\n"
+"window.addEventListener('blur',function(){\n"
+"  keys={}; btnRoute=null;\n"
+"  Object.values(kMap).forEach(function(id){ document.getElementById(id).classList.remove('active'); });\n"
+"});\n"
+"kbPollHandle=setInterval(kbPoll,50);\n"
+"\n"
+"// ══ GAMEPAD (Xbox-style) ═════════════════════════════════════════════════════\n"
+"// Uses the browser Gamepad API — no drivers. Right trigger = forward, left\n"
+"// trigger = reverse, right stick X = steer. Throttle and steer are mixed into\n"
+"// left/right motor speeds and sent to /drive?left=&right=.\n"
+"var gpRafHandle=null, GP_DZ=0.15, gpLastL=null, gpLastR=null, gpLastSendTime=0, GP_MIN_MS=100;\n"
+"function gpDZ(v){ return Math.abs(v)<GP_DZ?0:v; }\n"
+"function gpPoll(){\n"
+"  if(ctrlMode!=='controller')return;\n"
+"  var gps=navigator.getGamepads?navigator.getGamepads():[];\n"
+"  var gp=gps[0]; if(!gp||!gp.connected)return;\n"
+"  var fwd=gpDZ(gp.buttons[7]?gp.buttons[7].value:0);\n"
+"  var rev=gpDZ(gp.buttons[6]?gp.buttons[6].value:0);\n"
+"  var throttle=fwd-rev;\n"
+"  var steer=gpDZ(gp.axes[2]!==undefined?gp.axes[2]:0);\n"
+"  var L=Math.max(-255,Math.min(255,Math.round((throttle+steer)*255)));\n"
+"  var R=Math.max(-255,Math.min(255,Math.round((throttle-steer)*255)));\n"
+"  var now=Date.now();\n"
+"  if(now-gpLastSendTime < GP_MIN_MS) return;          // HARD CAP ~8 Hz — the WiFi module cannot take 60 Hz\n"
+"  var changed=(L!==gpLastL||R!==gpLastR);\n"
+"  if(!changed && L===0 && R===0) return;              // idle — nothing to send\n"
+"  if(!changed && now-gpLastSendTime < 200) return;    // steady hold — 200ms heartbeat only\n"
+"  gpLastL=L; gpLastR=R; gpLastSendTime=now;\n"
+"  fetch(cmdUrl('/drive?left='+L+'&right='+R)).catch(function(){});\n"
+"  setLabel(L===0&&R===0?'STANDBY':'DRIVE', !(L===0&&R===0));\n"
+"}\n"
+"function gpLoop(){ gpPoll(); gpRafHandle=requestAnimationFrame(gpLoop); }\n"
+"window.addEventListener('gamepadconnected',function(e){\n"
+"  var el=document.getElementById('gp-status'); el.textContent='CONNECTED'; el.className='dval dval-green';\n"
+"  addLog('GAMEPAD: '+e.gamepad.id.substring(0,24),'ok');\n"
+"  if(!gpRafHandle)gpRafHandle=requestAnimationFrame(gpLoop);\n"
+"  document.getElementById('ctrl-select').value='controller';\n"
+"  setControlMode('controller');\n"
+"});\n"
+"document.addEventListener('visibilitychange',function(){\n"
+"  if(!document.hidden)return;\n"
+"  if(ctrlMode==='controller'){ fetch('/drive?left=0&right=0').catch(function(){}); gpLastL=null; gpLastR=null; }\n"
+"});\n"
+"window.addEventListener('gamepaddisconnected',function(){\n"
+"  var el=document.getElementById('gp-status'); el.textContent='DISCONNECTED'; el.className='dval dval-red';\n"
+"  fetch('/drive?left=0&right=0').catch(function(){});\n"
+"  addLog('GAMEPAD DISCONNECTED','warn');\n"
+"  cancelAnimationFrame(gpRafHandle); gpRafHandle=null;\n"
+"  document.getElementById('ctrl-select').value='keyboard';\n"
+"  setControlMode('keyboard');\n"
 "});\n"
 "</script>\n"
 "</body>\n"
@@ -722,25 +904,41 @@ const char webpage[] =
 WiFiWebServer server(80);
 
 // ── MOTOR FUNCTIONS ───────────────────────────────────────────────────────────
+// All direction writes use DIR_FWD / DIR_REV (DIR_FWD = LOW) to correct the
+// swapped motor terminals. This fixes keyboard, on-screen buttons, and controller.
 void stopMotors()       { analogWrite(leftEn,0);        analogWrite(rightEn,0); }
-void moveForward()      { digitalWrite(leftDir,HIGH);   digitalWrite(rightDir,HIGH);
+void moveForward()      { digitalWrite(leftDir,DIR_FWD);  digitalWrite(rightDir,DIR_FWD);
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void moveBackward()     { digitalWrite(leftDir,LOW);    digitalWrite(rightDir,LOW);
+void moveBackward()     { digitalWrite(leftDir,DIR_REV);  digitalWrite(rightDir,DIR_REV);
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void turnLeft()         { digitalWrite(leftDir,LOW);    digitalWrite(rightDir,HIGH);
+void turnLeft()         { digitalWrite(leftDir,DIR_REV);  digitalWrite(rightDir,DIR_FWD);
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void turnRight()        { digitalWrite(leftDir,HIGH);   digitalWrite(rightDir,LOW);
+void turnRight()        { digitalWrite(leftDir,DIR_FWD);  digitalWrite(rightDir,DIR_REV);
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,fullSpeed); }
-void moveForwardLeft()  { digitalWrite(leftDir,HIGH);   digitalWrite(rightDir,HIGH);
+void moveForwardLeft()  { digitalWrite(leftDir,DIR_FWD);  digitalWrite(rightDir,DIR_FWD);
                           analogWrite(leftEn,turnSpeed); analogWrite(rightEn,fullSpeed); }
-void moveForwardRight() { digitalWrite(leftDir,HIGH);   digitalWrite(rightDir,HIGH);
+void moveForwardRight() { digitalWrite(leftDir,DIR_FWD);  digitalWrite(rightDir,DIR_FWD);
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,turnSpeed); }
-void moveBackLeft()     { digitalWrite(leftDir,LOW);    digitalWrite(rightDir,LOW);
+void moveBackLeft()     { digitalWrite(leftDir,DIR_REV);  digitalWrite(rightDir,DIR_REV);
                           analogWrite(leftEn,turnSpeed); analogWrite(rightEn,fullSpeed); }
-void moveBackRight()    { digitalWrite(leftDir,LOW);    digitalWrite(rightDir,LOW);
+void moveBackRight()    { digitalWrite(leftDir,DIR_REV);  digitalWrite(rightDir,DIR_REV);
                           analogWrite(leftEn,fullSpeed); analogWrite(rightEn,turnSpeed); }
 
 // ── HTTP HANDLERS ─────────────────────────────────────────────────────────────
+// Returns true if this command is newer than the last executed one. A new ?sid=
+// means the browser reloaded; reset the counter so the fresh session is never
+// wrongly treated as stale. Commands with no ?s= (e.g. stop on disconnect) always run.
+bool checkSeq() {
+  String sq = server.arg("s");
+  if (sq.length() == 0) return true;
+  long seq = sq.toInt();
+  String sid = server.arg("sid");
+  if (sid.length() > 0 && sid != lastSid) { lastSid = sid; lastSeq = 0; }
+  if (seq <= lastSeq) { server.send(200, "text/plain", "STALE"); return false; }
+  lastSeq = seq;
+  return true;
+}
+
 void handleRoot() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "text/html", "");
@@ -758,32 +956,50 @@ void handleRoot() {
   server.sendContent("");
 }
 
-void handleForward()      { moveForward();      server.send(200,"text/plain","OK"); }
-void handleBackward()     { moveBackward();     server.send(200,"text/plain","OK"); }
-void handleLeft()         { turnLeft();         server.send(200,"text/plain","OK"); }
-void handleRight()        { turnRight();        server.send(200,"text/plain","OK"); }
-void handleForwardLeft()  { moveForwardLeft();  server.send(200,"text/plain","OK"); }
-void handleForwardRight() { moveForwardRight(); server.send(200,"text/plain","OK"); }
-void handleBackLeft()     { moveBackLeft();     server.send(200,"text/plain","OK"); }
-void handleBackRight()    { moveBackRight();    server.send(200,"text/plain","OK"); }
-void handleStop()         { stopMotors();       server.send(200,"text/plain","OK"); }
+// Discrete direction handlers (keyboard / on-screen buttons)
+void handleForward()      { if(!checkSeq())return; moveForward();      lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleBackward()     { if(!checkSeq())return; moveBackward();     lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleLeft()         { if(!checkSeq())return; turnLeft();         lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleRight()        { if(!checkSeq())return; turnRight();        lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleForwardLeft()  { if(!checkSeq())return; moveForwardLeft();  lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleForwardRight() { if(!checkSeq())return; moveForwardRight(); lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleBackLeft()     { if(!checkSeq())return; moveBackLeft();     lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleBackRight()    { if(!checkSeq())return; moveBackRight();    lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+void handleStop()         { if(!checkSeq())return; stopMotors();       lastCmdTime=millis(); server.send(200,"text/plain","OK"); }
+
+// Analogue handler (gamepad): /drive?left=L&right=R, L/R in -255..255.
+// Sign sets direction (via DIR_FWD/DIR_REV), magnitude sets PWM speed.
+void handleDrive() {
+  if (!checkSeq()) return;
+  int left  = constrain(server.arg("left").toInt(),  -255, 255);
+  int right = constrain(server.arg("right").toInt(), -255, 255);
+  digitalWrite(leftDir,  left  >= 0 ? DIR_FWD : DIR_REV);
+  analogWrite(leftEn,    abs(left));
+  digitalWrite(rightDir, right >= 0 ? DIR_FWD : DIR_REV);
+  analogWrite(rightEn,   abs(right));
+  lastCmdTime = millis();
+  server.send(200, "text/plain", "OK");
+}
 
 void handleScanStart() {
-  // Reset all sweep accumulators
-  usTime       = 0;
-  magUpTime    = 0;
-  magDownTime  = 0;
-  irHighTime   = 0;
-  irLowTime    = 0;
+  usTime        = 0;
+  magUpTime     = 0;
+  magDownTime   = 0;
+  irHighPeak    = 0;
+  irLowPeak     = 0;
+  lastValidIrRate = 0;
   rockType       = "SCANNING";
   scanConfidence = 0;
   scanMatches    = 0;
+  scanValid      = 0;
+  scanDetermined = false;
+  agIr = "-"; agUs = "-"; agMag = "-";
   scanning       = true;
   scanStart      = millis();
   lastSampleMs   = millis();
-  armServo.write(SWEEP_MIN);   // start every sweep from the same place
+  armServo.write(SWEEP_MIN);
   server.send(200, "text/plain", "OK");
-  Serial.println("Scan started (2s sweep)");
+  Serial.println("Scan started");
 }
 
 void handleSensorData() {
@@ -802,13 +1018,17 @@ void handleSensorData() {
   data += "MATCHES:"  + String(scanMatches)          + ",";
   data += "SCANNING:" + String(scanning ? 1 : 0)     + ",";
   data += "TIMELEFT:" + String(timeLeft)             + ",";
-  // Frozen scan-result readings (what the classifier actually used)
   data += "SHAS:"     + String(scanHasResult ? 1 : 0) + ",";
   data += "SUS:"      + String(scanResUs ? 1 : 0)     + ",";
   data += "SMAG:"     + scanResMag                    + ",";
+  data += "SIRST:"    + scanResIrState                + ",";
   data += "SIR:"      + String(scanResIrRate)         + ",";
-  data += "SIRC:"     + String(scanResIrClass)        + ",";
-  data += "SAGE:"     + scanResAge;
+  data += "SAGE:"     + scanResAge                    + ",";
+  data += "SVALID:"   + String(scanValid)             + ",";
+  data += "SDET:"     + String(scanDetermined ? 1 : 0) + ",";
+  data += "AGIR:"     + agIr                          + ",";
+  data += "AGUS:"     + agUs                          + ",";
+  data += "AGMAG:"    + agMag;
   server.send(200, "text/plain", data);
 }
 
@@ -847,6 +1067,7 @@ void setup() {
   pinMode(leftEn,  OUTPUT); pinMode(leftDir,  OUTPUT);
   pinMode(rightEn, OUTPUT); pinMode(rightDir, OUTPUT);
   stopMotors();
+  lastCmdTime = millis();   // arm watchdog from boot
 
   // Sensor-arm servo
   armServo.attach(SERVO_PIN);
@@ -870,6 +1091,7 @@ void setup() {
   server.on("/backleft",     handleBackLeft);
   server.on("/backright",    handleBackRight);
   server.on("/stop",         handleStop);
+  server.on("/drive",        handleDrive);       // gamepad analogue control
   server.on("/sensordata",   handleSensorData);
   server.on("/scan/start",   handleScanStart);
   server.onNotFound(handleNotFound);
@@ -886,8 +1108,11 @@ void setup() {
 
 // ── MAIN LOOP ─────────────────────────────────────────────────────────────────
 void loop() {
-  server.handleClient();
+  for (int i = 0; i < 5; i++) server.handleClient();   // serve queued drive commands quickly
   readBoardTwo();
+
+  // Watchdog: if no drive command for WATCHDOG_MS, cut the motors.
+  if (millis() - lastCmdTime > WATCHDOG_MS) stopMotors();
 
   if (scanning) {
     unsigned long now     = millis();
@@ -896,21 +1121,20 @@ void loop() {
     if (elapsed >= SCAN_DURATION) {
       processScan();
     } else {
-      // Move the arm smoothly across the sweep, timed to the 2s scan window
       int angle = SWEEP_MIN + (int)((long)(SWEEP_MAX - SWEEP_MIN) * elapsed / SCAN_DURATION);
       armServo.write(angle);
 
-      // Add the time since the last loop into whichever bucket matches the
-      // CURRENT sensor reading. Over the sweep these totals tell us how long
-      // each signal was actually present.
       unsigned long dt = now - lastSampleMs;
       lastSampleMs = now;
 
       if (usDetected)                   usTime      += dt;
       if      (magDirection == "UP")    magUpTime   += dt;
       else if (magDirection == "DOWN")  magDownTime += dt;
-      if      (irClass == 547)          irHighTime  += dt;
-      else if (irClass == 312)          irLowTime   += dt;
+      if (irClass == 547 && irConfidence > irHighPeak) {
+        irHighPeak = irConfidence; lastValidIrRate = irRate;
+      } else if (irClass == 312 && irConfidence > irLowPeak) {
+        irLowPeak = irConfidence;  lastValidIrRate = irRate;
+      }
     }
   }
 }
