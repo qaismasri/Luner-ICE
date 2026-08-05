@@ -1,4 +1,4 @@
-[← Movement and control](07-movement-and-control.md) · [Documentation index](README.md) · [Next: Web interface →](09-web-interface.md)
+[← Movement and control](07-movement-and-control.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Web interface →](09-web-interface.md)
 
 # 8. PCB Design
 
@@ -133,4 +133,4 @@ Each Gerber set contains front and back copper, front and back solder mask, fron
 
 ---
 
-[← Movement and control](07-movement-and-control.md) · [Documentation index](README.md) · [Next: Web interface →](09-web-interface.md)
+[← Movement and control](07-movement-and-control.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Web interface →](09-web-interface.md)

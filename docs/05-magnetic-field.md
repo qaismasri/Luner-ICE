@@ -1,4 +1,4 @@
-[← Ultrasound sensing](04-ultrasound.md) · [Documentation index](README.md) · [Next: Mechanical design →](06-mechanical-design.md)
+[← Ultrasound sensing](04-ultrasound.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Mechanical design →](06-mechanical-design.md)
 
 # 5. Magnetic Field Sensing
 
@@ -128,4 +128,4 @@ The AH49E route consumed two sensors (£0.76) and a meaningful amount of bench t
 
 ---
 
-[← Ultrasound sensing](04-ultrasound.md) · [Documentation index](README.md) · [Next: Mechanical design →](06-mechanical-design.md)
+[← Ultrasound sensing](04-ultrasound.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Mechanical design →](06-mechanical-design.md)

@@ -1,4 +1,4 @@
-[← Documentation index](README.md) · [Next: Infrared sensing →](02-infrared.md)
+[← Documentation index](README.md) · [Repo home](../README.md) · [Next: Infrared sensing →](02-infrared.md)
 
 # 1. System Overview
 
@@ -91,4 +91,4 @@ The magnetic subsystem is the exception: the SEN0619 module performs its own amp
 
 ---
 
-[← Documentation index](README.md) · [Next: Infrared sensing →](02-infrared.md)
+[← Documentation index](README.md) · [Repo home](../README.md) · [Next: Infrared sensing →](02-infrared.md)

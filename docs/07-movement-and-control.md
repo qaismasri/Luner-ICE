@@ -1,4 +1,4 @@
-[← Mechanical design](06-mechanical-design.md) · [Documentation index](README.md) · [Next: PCB design →](08-pcb-design.md)
+[← Mechanical design](06-mechanical-design.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: PCB design →](08-pcb-design.md)
 
 # 7. Movement and Control
 
@@ -195,4 +195,4 @@ The sensor arm servo is driven from the sensor board. Test firmware for the swee
 
 ---
 
-[← Mechanical design](06-mechanical-design.md) · [Documentation index](README.md) · [Next: PCB design →](08-pcb-design.md)
+[← Mechanical design](06-mechanical-design.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: PCB design →](08-pcb-design.md)

@@ -1,3 +1,5 @@
+[← Repo home](../README.md) · [Technical documentation](../docs/README.md)
+
 # Flight Firmware — Dual-Board Setup
 
 The code that actually runs on the Lunar-ICE rover. Two independent [PlatformIO](https://platformio.org/) projects, one per Adafruit Metro M0 Express board.

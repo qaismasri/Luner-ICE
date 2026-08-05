@@ -1,4 +1,4 @@
-[← Magnetic field sensing](05-magnetic-field.md) · [Documentation index](README.md) · [Next: Movement and control →](07-movement-and-control.md)
+[← Magnetic field sensing](05-magnetic-field.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Movement and control →](07-movement-and-control.md)
 
 # 6. Mechanical Design — Chassis and Sensor Arm
 
@@ -157,4 +157,4 @@ See [images/README.md](images/README.md) for the complete list across all subsys
 
 ---
 
-[← Magnetic field sensing](05-magnetic-field.md) · [Documentation index](README.md) · [Next: Movement and control →](07-movement-and-control.md)
+[← Magnetic field sensing](05-magnetic-field.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Movement and control →](07-movement-and-control.md)
