@@ -130,6 +130,31 @@ Naming convention: `<subsystem>-<what-it-shows>.png`. Simulation captures carry 
 
 ---
 
+## Derived assets
+
+These are generated from the figures above rather than taken from the report. They exist to give the root README a consistent look; nothing in the documentation chapters depends on them.
+
+### `gallery/` — 4 images
+
+Each source figure is fitted onto a common 720 × 450 canvas with **transparent** padding, so the four cells of the sensor gallery in the root README line up regardless of the source aspect ratio. Transparency means they adapt to the reader's light or dark theme.
+
+| File | Built from |
+|---|---|
+| `sensor-radio.png` | `radio/radio-ferrite-coil.png` |
+| `sensor-infrared.png` | `infrared/ir-full-circuit.png` |
+| `sensor-ultrasound.png` | `ultrasound/us-breadboard-final.png` |
+| `sensor-magnetic.png` | `magnetic/mag-sen0619-module.png` |
+
+**If you replace a source figure**, regenerate the matching gallery image so the two stay in step.
+
+### `nav/` — 5 images
+
+Button images for the root README's navigation bar. GitHub strips CSS from Markdown, so plain links cannot be restyled; rendering the primary navigation as images is the only way to make it read as buttons rather than blue text. They are generated locally rather than pulled from a badge service, so the README has no external dependencies and renders offline.
+
+`btn-documentation.png` (accent) · `btn-sensors.png` · `btn-architecture.png` · `btn-build.png` · `btn-figures.png`
+
+---
+
 ## Photographs still wanted
 
 Everything above documents the **design**. What the documentation lacks almost entirely is evidence of the **built rover** — there is not a single photograph of the finished machine anywhere in this repository.
@@ -146,6 +171,7 @@ The slots below are reserved. Drop a file at the given path and the documentatio
 | `mechanical/rover-side-profile.jpg` | Side-on, showing the 35 mm plate separation and the sensor arm's ground clearance. |
 | `mechanical/rover-scanning-rock.jpg` | Parked at a rock mid-scan with the arm swept over it. Shows the working geometry better than any render. |
 | `mechanical/rover-top-down.jpg` | Directly overhead, showing the sensor plate layout — PCBs, Board 2, arm pivot. |
+| `infrared/ir-breadboard-final.jpg` | The infrared circuit built on breadboard. **This is the one sensor gallery cell on the front page still showing a schematic rather than real hardware** — radio, ultrasound and magnetic are all photographs. Shoot this and regenerate `gallery/sensor-infrared.png` from it. |
 
 ### Priority 2 — subassemblies
 
