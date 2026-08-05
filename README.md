@@ -87,8 +87,6 @@ For the full technical write-up — calculations, simulations, measurements and 
 | **Yangping Li** | Motor subsystem and drive integration |
 | **Shivang Mehra** | Ultrasound and magnetic sensing, integration |
 
-**Use of AI assistance.** Parts of the web interface and firmware were written with the assistance of an AI tool (Anthropic's Claude). The team specified the required behaviour, then reviewed, tested and debugged all code on the hardware. The design decisions and the understanding behind them are the team's own.
-
 <div align="right"><a href="#lunar-ice-rover"><img src="docs/images/nav/btn-top.png" height="20" alt="Back to top"></a></div>
 
 ## The sensors

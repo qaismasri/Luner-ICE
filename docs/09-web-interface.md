@@ -106,10 +106,4 @@ The **confidence** shown is worked out from how decisive each sensor was during 
 
 ---
 
-## 9.8 Use of AI assistance
-
-The web interface code was written with the help of an AI tool (Anthropic's Claude), given the complexity of the program required and the short timeframe available. The behaviour was specified by the team, and all code was reviewed, tested and debugged on the hardware.
-
----
-
 [← PCB design](08-pcb-design.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Dual-board architecture →](10-dual-board-architecture.md)

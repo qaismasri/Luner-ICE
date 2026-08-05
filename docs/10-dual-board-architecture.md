@@ -180,10 +180,4 @@ This directive is **required**. Without it the build hits a USB symbol conflict 
 
 ---
 
-## 10.9 Use of AI assistance
-
-Given the system's complexity and the time available, some of the firmware was written with the help of an AI tool (Anthropic's Claude). The team specified the behaviour, then reviewed, tested and debugged all code on the hardware; the design and the understanding of it are the team's own.
-
----
-
 [← Web interface](09-web-interface.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Cost and bill of materials →](11-cost-and-bom.md)
