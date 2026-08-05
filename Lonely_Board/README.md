@@ -1,3 +1,5 @@
+[← Repo home](../README.md) · [Technical documentation](../docs/README.md)
+
 # Single-Board Prototype
 
 A complete, working implementation of the entire rover on **one** Adafruit Metro M0 Express — sensors, Wi-Fi, web interface, motors and classification in a single sketch.

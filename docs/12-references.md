@@ -1,4 +1,4 @@
-[← Cost and bill of materials](11-cost-and-bom.md) · [Documentation index](README.md)
+[← Cost and bill of materials](11-cost-and-bom.md) · [Documentation index](README.md) · [Repo home](../README.md)
 
 # 12. References
 
@@ -43,4 +43,4 @@
 
 ---
 
-[← Cost and bill of materials](11-cost-and-bom.md) · [Documentation index](README.md)
+[← Cost and bill of materials](11-cost-and-bom.md) · [Documentation index](README.md) · [Repo home](../README.md)

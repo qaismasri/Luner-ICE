@@ -1,4 +1,4 @@
-[← System overview](01-system-overview.md) · [Documentation index](README.md) · [Next: Radio sensing →](03-radio.md)
+[← System overview](01-system-overview.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Radio sensing →](03-radio.md)
 
 # 2. Infrared Sensing
 
@@ -153,4 +153,4 @@ Every reading falls clearly on the correct side of the ~450 Hz decision boundary
 
 ---
 
-[← System overview](01-system-overview.md) · [Documentation index](README.md) · [Next: Radio sensing →](03-radio.md)
+[← System overview](01-system-overview.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Radio sensing →](03-radio.md)

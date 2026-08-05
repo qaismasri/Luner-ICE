@@ -1,4 +1,4 @@
-[← Infrared sensing](02-infrared.md) · [Documentation index](README.md) · [Next: Ultrasound sensing →](04-ultrasound.md)
+[← Infrared sensing](02-infrared.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Ultrasound sensing →](04-ultrasound.md)
 
 # 3. Radio Sensing
 
@@ -228,4 +228,4 @@ That timeout is small but important — without it the rover would confidently r
 
 ---
 
-[← Infrared sensing](02-infrared.md) · [Documentation index](README.md) · [Next: Ultrasound sensing →](04-ultrasound.md)
+[← Infrared sensing](02-infrared.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Ultrasound sensing →](04-ultrasound.md)

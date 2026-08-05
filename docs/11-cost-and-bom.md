@@ -1,4 +1,4 @@
-[← Dual-board architecture](10-dual-board-architecture.md) · [Documentation index](README.md) · [Next: References →](12-references.md)
+[← Dual-board architecture](10-dual-board-architecture.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: References →](12-references.md)
 
 # 11. Cost and Bill of Materials
 
@@ -100,4 +100,4 @@ A significant portion of the build used parts already available in the departmen
 
 ---
 
-[← Dual-board architecture](10-dual-board-architecture.md) · [Documentation index](README.md) · [Next: References →](12-references.md)
+[← Dual-board architecture](10-dual-board-architecture.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: References →](12-references.md)

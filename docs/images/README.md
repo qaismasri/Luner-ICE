@@ -1,4 +1,4 @@
-[← Documentation index](../README.md)
+[← Documentation index](../README.md) · [Repo home](../../README.md)
 
 # Figure Index
 
@@ -177,4 +177,4 @@ The slots below are reserved. Drop a file at the given path and the documentatio
 
 ---
 
-[← Documentation index](../README.md)
+[← Documentation index](../README.md) · [Repo home](../../README.md)

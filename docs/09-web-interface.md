@@ -1,4 +1,4 @@
-[← PCB design](08-pcb-design.md) · [Documentation index](README.md) · [Next: Dual-board architecture →](10-dual-board-architecture.md)
+[← PCB design](08-pcb-design.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Dual-board architecture →](10-dual-board-architecture.md)
 
 # 9. Web Interface — Mission Control
 
@@ -112,4 +112,4 @@ The web interface code was written with the help of an AI tool (Anthropic's Clau
 
 ---
 
-[← PCB design](08-pcb-design.md) · [Documentation index](README.md) · [Next: Dual-board architecture →](10-dual-board-architecture.md)
+[← PCB design](08-pcb-design.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Dual-board architecture →](10-dual-board-architecture.md)

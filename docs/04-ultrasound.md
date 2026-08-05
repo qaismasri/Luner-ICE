@@ -1,4 +1,4 @@
-[← Radio sensing](03-radio.md) · [Documentation index](README.md) · [Next: Magnetic field sensing →](05-magnetic-field.md)
+[← Radio sensing](03-radio.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Magnetic field sensing →](05-magnetic-field.md)
 
 # 4. Ultrasound Sensing
 
@@ -172,4 +172,4 @@ Samples are taken every **20 ms** using non-blocking `millis()` timing, so ultra
 
 ---
 
-[← Radio sensing](03-radio.md) · [Documentation index](README.md) · [Next: Magnetic field sensing →](05-magnetic-field.md)
+[← Radio sensing](03-radio.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Magnetic field sensing →](05-magnetic-field.md)

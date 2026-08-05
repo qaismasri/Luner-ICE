@@ -1,4 +1,4 @@
-[← Web interface](09-web-interface.md) · [Documentation index](README.md) · [Next: Cost and bill of materials →](11-cost-and-bom.md)
+[← Web interface](09-web-interface.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Cost and bill of materials →](11-cost-and-bom.md)
 
 # 10. Dual-Board Architecture
 
@@ -186,4 +186,4 @@ Given the system's complexity and the time available, some of the firmware was w
 
 ---
 
-[← Web interface](09-web-interface.md) · [Documentation index](README.md) · [Next: Cost and bill of materials →](11-cost-and-bom.md)
+[← Web interface](09-web-interface.md) · [Documentation index](README.md) · [Repo home](../README.md) · [Next: Cost and bill of materials →](11-cost-and-bom.md)
