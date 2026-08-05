@@ -1,2 +1,21 @@
 # PlatformIO build artifacts and downloaded library cache
 .pio/
+
+# KiCad lock, backup and autosave files
+*.lck
+*~
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*-backups/
+fp-info-cache
+
+# Project report (large binary, distributed separately)
+ELEC40006-Project_Report_Group_15.pdf
+
+# Office temporary files
+~$*
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store

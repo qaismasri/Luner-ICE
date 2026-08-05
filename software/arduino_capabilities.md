@@ -1,5 +1,10 @@
 # Should We Use One or Two Boards?
 
+> **Early design exploration — kept for the record.**
+> This note was written *before* the architecture was settled, and its board numbering is the reverse of the final design. In the delivered rover, **Board 1 is control** (Wi-Fi, web interface, motors, classification) and **Board 2 is sensing**. The diagram below has them the other way round.
+>
+> For the architecture as built, and the reasoning behind choosing two boards, see [docs/10-dual-board-architecture.md](../docs/10-dual-board-architecture.md). The single-board option explored here was in fact built and works — it lives in [`Lonely_Board/`](../Lonely_Board/).
+
 ## Option 1: One Board
 
 Arduino can't multitask normally, but each task can be handled efficiently:
