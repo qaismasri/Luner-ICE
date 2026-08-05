@@ -1,5 +1,5 @@
 # Project Deadlines
-This file tracks the individual task deadlines for all team members working on the Luner-ICE project.
+This file tracks the individual task deadlines for all team members working on the Lunar-ICE project.
 
 ## Team Members & Their Deadlines
 | Member | Task | Target Completion Date | Status |
