@@ -134,9 +134,20 @@ Naming convention: `<subsystem>-<what-it-shows>.png`. Simulation captures carry 
 
 These are generated from the figures above rather than taken from the report. They exist to give the root README a consistent look; nothing in the documentation chapters depends on them.
 
-### `gallery/` — 4 images
+### `gallery/` — 8 images
 
-Each source figure is fitted onto a common 720 × 450 canvas with **transparent** padding, so the four cells of the sensor gallery in the root README line up regardless of the source aspect ratio. Transparency means they adapt to the reader's light or dark theme.
+Each source figure is fitted onto a common 720 × 450 canvas with **transparent** padding, so the cells of the two galleries in the root README line up regardless of the source aspect ratio. Transparency means they adapt to the reader's light or dark theme.
+
+**Rover gallery** — the four views at the top of the README:
+
+| File | Built from |
+|---|---|
+| `rover-1-complete.png` | `mechanical/chassis-complete.png` |
+| `rover-2-plates.png` | `mechanical/chassis-plates-exploded.png` |
+| `rover-3-sensor-arm.png` | `mechanical/sensor-arm-on-chassis.png` |
+| `rover-4-radio-arm.png` | `mechanical/radio-arm-mounted-side.png` |
+
+**Sensor gallery** — one picture per subsystem:
 
 | File | Built from |
 |---|---|
@@ -145,13 +156,15 @@ Each source figure is fitted onto a common 720 × 450 canvas with **transparent*
 | `sensor-ultrasound.png` | `ultrasound/us-breadboard-final.png` |
 | `sensor-magnetic.png` | `magnetic/mag-sen0619-module.png` |
 
-**If you replace a source figure**, regenerate the matching gallery image so the two stay in step.
+**If you replace a source figure**, regenerate the matching gallery image so the two stay in step. Every rover-gallery image is currently a CAD render — swapping in photographs of the built rover is the single biggest improvement available to this repository.
 
-### `nav/` — 5 images
+### `nav/` — 6 images
 
-Button images for the root README's navigation bar. GitHub strips CSS from Markdown, so plain links cannot be restyled; rendering the primary navigation as images is the only way to make it read as buttons rather than blue text. They are generated locally rather than pulled from a badge service, so the README has no external dependencies and renders offline.
+Button images for the root README. GitHub strips CSS from Markdown, so plain links cannot be restyled; rendering navigation as images is the only way to make it read as buttons rather than blue text. They are generated locally rather than pulled from a badge service, so the README has no external dependencies and renders offline.
 
-`btn-documentation.png` (accent) · `btn-sensors.png` · `btn-architecture.png` · `btn-build.png` · `btn-figures.png`
+Section jumps: `btn-documentation.png` (accent) · `btn-contents.png` · `btn-sensors.png` · `btn-architecture.png` · `btn-team.png`
+
+Back to top: `btn-top.png` — the small muted pill repeated at the end of each README section.
 
 ---
 
